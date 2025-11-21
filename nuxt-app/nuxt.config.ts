@@ -1,10 +1,6 @@
 // https://nuxt.com/docs/api/configuration/nuxt-config
 export default defineNuxtConfig({
-  modules: [
-    '@nuxt/eslint',
-    '@nuxt/ui',
-    '@vueuse/nuxt'
-  ],
+  modules: ['@nuxt/eslint', '@nuxt/ui', '@vueuse/nuxt', '@nuxtjs/supabase'],
 
   devtools: {
     enabled: true
@@ -24,6 +20,13 @@ export default defineNuxtConfig({
     '/api/**': {
       cors: true
     }
+  },
+
+  supabase: {
+    url: process.env.SUPABASE_URL,
+    key: process.env.SUPABASE_KEY,
+    secretKey: process.env.SUPABASE_SECRET_KEY,
+    redirect: false
   },
 
   compatibilityDate: '2024-07-11',
