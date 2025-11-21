@@ -194,7 +194,7 @@ function onQuickCapture() {
           </template>
 
           <div v-if="status === 'pending'" class="flex items-center justify-center py-6">
-            <ULoadingIcon class="size-5 text-muted" />
+            <UIcon name="i-lucide-loader-2" class="size-5 text-muted animate-spin" />
             <span class="ml-2 text-sm text-muted">Loading recent events…</span>
           </div>
 

@@ -14,6 +14,7 @@ const recordingUrl = useObjectUrl(recordingBlob)
 
 let mediaRecorder: MediaRecorder | null = null
 let chunks: BlobPart[] = []
+let recordingMimeType = '' // Track the actual mime type used by MediaRecorder
 
 const canTranscribe = computed(() => hasRecording.value && !isRecording.value && !isSubmitting.value)
 
@@ -39,9 +40,32 @@ async function startRecording() {
 
   try {
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
-
     chunks = []
-    mediaRecorder = new MediaRecorder(stream)
+
+    // Pick a MIME type that this browser actually supports
+    let preferredMimeType = ''
+    if (typeof MediaRecorder !== 'undefined') {
+      const candidates = [
+        'audio/webm;codecs=opus',
+        'audio/webm',
+        'audio/mp4',
+        'audio/mpeg',
+        'audio/wav'
+      ]
+
+      for (const candidate of candidates) {
+        if (MediaRecorder.isTypeSupported(candidate)) {
+          preferredMimeType = candidate
+          break
+        }
+      }
+    }
+
+    mediaRecorder = preferredMimeType
+      ? new MediaRecorder(stream, { mimeType: preferredMimeType })
+      : new MediaRecorder(stream)
+
+    recordingMimeType = mediaRecorder.mimeType || preferredMimeType || 'audio/webm'
 
     mediaRecorder.ondataavailable = (event: BlobEvent) => {
       if (event.data.size > 0) {
@@ -50,7 +74,7 @@ async function startRecording() {
     }
 
     mediaRecorder.onstop = () => {
-      const blob = new Blob(chunks, { type: 'audio/webm' })
+      const blob = new Blob(chunks, { type: recordingMimeType })
       recordingBlob.value = blob
       hasRecording.value = true
 
@@ -127,12 +151,17 @@ async function sendForTranscription() {
   try {
     const formData = new FormData()
     // Determine file extension based on MIME type
+    const mimeType = recordingBlob.value.type || recordingMimeType || 'audio/webm'
     let fileExtension = 'webm'
-    if (recordingBlob.value.type.includes('mp3')) {
+
+    if (mimeType.includes('mp3') || mimeType.includes('mpeg')) {
       fileExtension = 'mp3'
-    } else if (recordingBlob.value.type.includes('wav')) {
+    } else if (mimeType.includes('wav')) {
       fileExtension = 'wav'
+    } else if (mimeType.includes('mp4') || mimeType.includes('m4a')) {
+      fileExtension = 'mp4'
     }
+
     formData.append('audio', recordingBlob.value, `recording.${fileExtension}`)
 
     const response = await $fetch<{ transcript: string }>('/api/transcribe', {

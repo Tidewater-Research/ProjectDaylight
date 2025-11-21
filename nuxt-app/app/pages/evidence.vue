@@ -104,7 +104,7 @@ function sourceLabel(type: EvidenceItem['sourceType']) {
         </p>
 
         <UCard v-if="status === 'pending'" class="flex items-center justify-center py-12">
-          <ULoadingIcon class="size-5 text-muted" />
+          <UIcon name="i-lucide-loader-2" class="size-5 text-muted animate-spin" />
           <span class="ml-2 text-sm text-muted">Loading evidence…</span>
         </UCard>
 
