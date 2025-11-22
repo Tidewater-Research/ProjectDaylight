@@ -1,0 +1,234 @@
+<script setup lang="ts">
+import type { NavigationMenuItem } from '@nuxt/ui'
+
+const route = useRoute()
+const toast = useToast()
+
+const open = ref(false)
+
+const links = [[{
+  label: 'Home',
+  icon: 'i-lucide-house',
+  to: '/home',
+  onSelect: () => {
+    open.value = false
+  }
+}, {
+  label: 'Capture',
+  icon: 'i-lucide-mic',
+  to: '/capture',
+  onSelect: () => {
+    open.value = false
+  }
+}, {
+  label: 'Timeline',
+  icon: 'i-lucide-calendar-clock',
+  to: '/timeline',
+  onSelect: () => {
+    open.value = false
+  }
+}, {
+  label: 'Evidence',
+  icon: 'i-lucide-folder-open',
+  to: '/evidence',
+  onSelect: () => {
+    open.value = false
+  }
+}, {
+  label: 'Interpreter',
+  icon: 'i-lucide-message-circle',
+  to: '/interpreter',
+  onSelect: () => {
+    open.value = false
+  }
+}, {
+  label: 'Export',
+  icon: 'i-lucide-file-down',
+  to: '/export',
+  onSelect: () => {
+    open.value = false
+  }
+}, {
+  label: 'Template pages',
+  icon: 'i-lucide-layers',
+  type: 'trigger',
+  children: [{
+    label: 'Dashboard template',
+    to: '/template-home',
+    icon: 'i-lucide-layout-dashboard',
+    onSelect: () => {
+      open.value = false
+    }
+  }, {
+    label: 'Inbox',
+    to: '/inbox',
+    icon: 'i-lucide-inbox',
+    badge: '4',
+    onSelect: () => {
+      open.value = false
+    }
+  }, {
+    label: 'Customers',
+    to: '/customers',
+    icon: 'i-lucide-users',
+    onSelect: () => {
+      open.value = false
+    }
+  }, {
+    label: 'Settings',
+    to: '/settings',
+    icon: 'i-lucide-settings',
+    type: 'trigger',
+    children: [{
+      label: 'General',
+      to: '/settings',
+      exact: true,
+      onSelect: () => {
+        open.value = false
+      }
+    }, {
+      label: 'Members',
+      to: '/settings/members',
+      onSelect: () => {
+        open.value = false
+      }
+    }, {
+      label: 'Notifications',
+      to: '/settings/notifications',
+      onSelect: () => {
+        open.value = false
+      }
+    }, {
+      label: 'Security',
+      to: '/settings/security',
+      onSelect: () => {
+        open.value = false
+      }
+    }]
+  }]
+}], [{
+  label: 'Feedback',
+  icon: 'i-lucide-message-circle',
+  to: 'https://github.com/nuxt-ui-templates/dashboard',
+  target: '_blank'
+}, {
+  label: 'Help & Support',
+  icon: 'i-lucide-info',
+  to: 'https://github.com/nuxt-ui-templates/dashboard',
+  target: '_blank'
+}]] satisfies NavigationMenuItem[][]
+
+if (process.dev) {
+  const rootLinks = links[0] ?? []
+
+  if (!rootLinks.some(item => item.to === '/dev-db-test')) {
+    const templateIndex = rootLinks.findIndex(item => item.label === 'Template pages')
+
+    const devLink = {
+      label: 'DB Test',
+      to: '/dev-db-test',
+      icon: 'i-lucide-database',
+      badge: 'DEV',
+      onSelect: () => {
+        open.value = false
+      }
+    } as any
+
+    if (templateIndex !== -1) {
+      rootLinks.splice(templateIndex, 0, devLink)
+    } else {
+      rootLinks.push(devLink)
+    }
+  }
+}
+
+const groups = computed(() => [{
+  id: 'links',
+  label: 'Go to',
+  items: links.flat()
+}, {
+  id: 'code',
+  label: 'Code',
+  items: [{
+    id: 'source',
+    label: 'View page source',
+    icon: 'i-simple-icons-github',
+    to: `https://github.com/nuxt-ui-templates/dashboard/blob/main/app/pages${route.path === '/' ? '/index' : route.path}.vue`,
+    target: '_blank'
+  }]
+}])
+
+onMounted(async () => {
+  const cookie = useCookie('cookie-consent')
+  if (cookie.value === 'accepted') {
+    return
+  }
+
+  toast.add({
+    title: 'We use first-party cookies to enhance your experience on our website.',
+    duration: 0,
+    close: false,
+    actions: [{
+      label: 'Accept',
+      color: 'neutral',
+      variant: 'outline',
+      onClick: () => {
+        cookie.value = 'accepted'
+      }
+    }, {
+      label: 'Opt out',
+      color: 'neutral',
+      variant: 'ghost'
+    }]
+  })
+})
+</script>
+
+<template>
+  <UDashboardGroup unit="rem">
+    <UDashboardSidebar
+      id="default"
+      v-model:open="open"
+      collapsible
+      resizable
+      class="bg-elevated/25"
+      :ui="{ footer: 'lg:border-t lg:border-default' }"
+    >
+      <template #header="{ collapsed }">
+        <TeamsMenu :collapsed="collapsed" />
+      </template>
+
+      <template #default="{ collapsed }">
+        <UDashboardSearchButton :collapsed="collapsed" class="bg-transparent ring-default" />
+
+        <UNavigationMenu
+          :collapsed="collapsed"
+          :items="links[0]"
+          orientation="vertical"
+          tooltip
+          popover
+        />
+
+        <UNavigationMenu
+          :collapsed="collapsed"
+          :items="links[1]"
+          orientation="vertical"
+          tooltip
+          class="mt-auto"
+        />
+      </template>
+
+      <template #footer="{ collapsed }">
+        <UserMenu :collapsed="collapsed" />
+      </template>
+    </UDashboardSidebar>
+
+    <UDashboardSearch :groups="groups" />
+
+    <slot />
+
+    <NotificationsSlideover />
+  </UDashboardGroup>
+</template>
+
+

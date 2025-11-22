@@ -4,7 +4,8 @@ export default defineNuxtConfig({
     '@nuxt/eslint',
     '@nuxt/ui',
     '@nuxt/content',
-    '@nuxtjs/supabase'
+    '@nuxtjs/supabase',
+    '@vueuse/nuxt'
   ],
 
   devtools: {
@@ -12,6 +13,14 @@ export default defineNuxtConfig({
   },
 
   css: ['~/assets/css/main.css'],
+
+  // Private runtime configuration (only available on the server)
+  runtimeConfig: {
+    openai: {
+      // Make sure you have OPENAI_API_KEY set in your .env file
+      apiKey: process.env.OPENAI_API_KEY
+    }
+  },
 
   routeRules: {
     '/': { prerender: true }
@@ -24,6 +33,18 @@ export default defineNuxtConfig({
     url: process.env.SUPABASE_URL,
     key: process.env.SUPABASE_KEY,
     redirect: false // We'll handle redirects manually for the test page
+  },
+
+  // Ensure Supabase modules are transpiled correctly for ESM / prerender
+  build: {
+    transpile: [
+      '@supabase/supabase-js',
+      '@supabase/auth-js',
+      '@supabase/functions-js',
+      '@supabase/postgrest-js',
+      '@supabase/realtime-js',
+      '@supabase/storage-js'
+    ]
   },
 
   eslint: {
