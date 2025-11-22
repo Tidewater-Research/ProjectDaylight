@@ -22,7 +22,6 @@ export default defineNuxtConfig({
     }
   },
 
-  // Supabase configuration
   supabase: {
     url: process.env.SUPABASE_URL,
     key: process.env.SUPABASE_KEY,
@@ -32,23 +31,14 @@ export default defineNuxtConfig({
       login: '/auth/login',
       callback: '/auth/confirm',
       include: undefined,
-      exclude: ['/auth/*', '/'],
-      saveRedirectToCookie: false
-    },
-    cookieOptions: {
-      maxAge: 60 * 60 * 8,
-      sameSite: 'lax',
-      secure: true
+      exclude: ['/auth/*', '/']
     },
     clientOptions: {
       auth: {
-        flowType: 'pkce',
         detectSessionInUrl: true,
-        persistSession: true,
-        autoRefreshToken: true
+        persistSession: true
       }
-    },
-    types: false // Disable for now since we don't have the types file yet
+    }
   },
 
   compatibilityDate: '2024-07-11',
@@ -60,5 +50,10 @@ export default defineNuxtConfig({
         braceStyle: '1tbs'
       }
     }
+  },
+
+  // Add transpile for Supabase modules
+  build: {
+    transpile: ['@supabase/supabase-js']
   }
 })
