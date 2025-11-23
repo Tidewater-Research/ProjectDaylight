@@ -1,8 +1,67 @@
 import OpenAI from 'openai'
+import { zodTextFormat } from 'openai/helpers/zod'
+import { z } from 'zod'
 
 interface VoiceExtractionBody {
   transcript?: string
 }
+
+// Define Zod schemas for structured extraction
+const EvidenceMentionedSchema = z.object({
+  type: z.enum(['text', 'email', 'photo', 'document', 'recording']).describe('Type of evidence'),
+  description: z.string().describe('Description of the evidence'),
+  status: z.enum(['have', 'need_to_get', 'need_to_create']).describe('Current status of the evidence')
+})
+
+const ParticipantsSchema = z.object({
+  primary: z.array(z.enum(['co-parent', 'child', 'self', 'other'])).describe('Primary participants'),
+  witnesses: z.array(z.string()).describe('Witnesses present'),
+  professionals: z.array(z.string()).describe('Professionals involved')
+})
+
+const CustodyRelevanceSchema = z.object({
+  agreement_violation: z.boolean().nullable().describe('Whether this violates a custody agreement'),
+  safety_concern: z.boolean().nullable().describe('Whether there are safety concerns'),
+  welfare_impact: z.enum(['none', 'minor', 'moderate', 'significant', 'positive', 'unknown']).describe('Impact on child welfare')
+})
+
+const EventSchema = z.object({
+  type: z.enum(['incident', 'positive', 'medical', 'school', 'communication', 'legal']).describe('Type of event'),
+  title: z.string().describe('Brief factual summary'),
+  description: z.string().describe('Detailed factual narrative'),
+  primary_timestamp: z.string().nullable().describe('ISO-8601 timestamp or null if unknown'),
+  timestamp_precision: z.enum(['exact', 'day', 'approximate', 'unknown']).describe('How precise the timestamp is'),
+  duration_minutes: z.number().nullable().describe('Duration in minutes if applicable'),
+  location: z.string().nullable().describe('Location where event occurred'),
+  participants: ParticipantsSchema,
+  child_involved: z.boolean().describe('Whether a child was involved'),
+  evidence_mentioned: z.array(EvidenceMentionedSchema),
+  patterns_noted: z.array(z.string()),
+  custody_relevance: CustodyRelevanceSchema
+})
+
+const ActionItemSchema = z.object({
+  priority: z.enum(['urgent', 'high', 'normal', 'low']).describe('Priority level'),
+  type: z.enum(['document', 'contact', 'file', 'obtain', 'other']).describe('Type of action'),
+  description: z.string().describe('Description of the action item'),
+  deadline: z.string().nullable().describe('Deadline for the action')
+})
+
+const MetadataSchema = z.object({
+  recording_timestamp: z.string().nullable().describe('ISO-8601 timestamp of the recording'),
+  recording_duration_seconds: z.number().nullable().describe('Duration of the recording in seconds'),
+  transcription_confidence: z.number().nullable().describe('Confidence score for transcription'),
+  extraction_confidence: z.number().nullable().describe('Confidence score for extraction'),
+  ambiguities: z.array(z.string()).describe('Notes about ambiguous elements')
+})
+
+const ExtractionSchema = z.object({
+  extraction: z.object({
+    events: z.array(EventSchema).describe('Extracted events from the transcript'),
+    action_items: z.array(ActionItemSchema).describe('Action items identified'),
+    metadata: MetadataSchema
+  })
+})
 
 export default defineEventHandler(async (event) => {
   const config = useRuntimeConfig()
@@ -31,117 +90,71 @@ export default defineEventHandler(async (event) => {
       apiKey: config.openai.apiKey
     })
 
-    const completion = await openai.chat.completions.create({
+    /**
+     * Use the Responses API with structured output parsing via Zod schemas.
+     * This provides type-safe validation and automatic JSON parsing.
+     *
+     * The model will:
+     * - Extract factual, legally relevant information from the transcript
+     * - Identify events, action items, and metadata
+     * - Produce a validated JSON object matching the voice extraction schema
+     */
+    const response = await openai.responses.parse({
       model: 'gpt-5-mini',
-      response_format: { type: 'json_object' },
-      messages: [
+      text: {
+        format: zodTextFormat(ExtractionSchema, 'extraction')
+      },
+      input: [
         {
           role: 'system',
           content: [
-            'You are an extraction engine for Project Daylight.',
-            'Given a voice note transcript from a parent in a custody situation, you must extract factual, legally relevant information only.',
-            'Do not provide advice, opinions, or legal conclusions.',
-            '',
-            `Assume the voice note was recorded at this timestamp (ISO-8601, server time): ${recordingTimestampIso}.`,
-            'Unless the user clearly specifies a different calendar date, assume their description refers to events occurring on the same calendar day as this recording timestamp.',
-            'When the user gives a time like "at 10am" or "around 3:30 PM", construct an ISO-8601 primary_timestamp using that time on the recording date. Set seconds to 0 and preserve the timezone from the recording timestamp.',
-            'For relative phrases like "this morning", "tonight", or "earlier today", choose a reasonable time on that same day and set timestamp_precision to "approximate".',
-            'If you cannot reasonably resolve a date or time, leave primary_timestamp as null and set timestamp_precision to "unknown".',
-            '',
-            'Return a single JSON object that matches this structure:',
-            '{',
-            '  "extraction": {',
-            '    "events": [',
-            '      {',
-            '        "type": "incident|positive|medical|school|communication|legal",',
-            '        "title": "Brief factual summary",',
-            '        "description": "Detailed factual narrative",',
-            '        "primary_timestamp": "ISO-8601 string or null if unknown",',
-            '        "timestamp_precision": "exact|day|approximate|unknown",',
-            '        "duration_minutes": number|null,',
-            '        "location": "string or null",',
-            '        "participants": {',
-            '          "primary": [ "co-parent|child|self|other" ],',
-            '          "witnesses": [ "string" ],',
-            '          "professionals": [ "string" ]',
-            '        },',
-            '        "child_involved": boolean,',
-            '        "evidence_mentioned": [',
-            '          {',
-            '            "type": "text|email|photo|document|recording",',
-            '            "description": "string",',
-            '            "status": "have|need_to_get|need_to_create"',
-            '          }',
-            '        ],',
-            '        "patterns_noted": [ "string" ],',
-            '        "custody_relevance": {',
-            '          "agreement_violation": boolean|null,',
-            '          "safety_concern": boolean|null,',
-            '          "welfare_impact": "none|minor|moderate|significant|positive|unknown"',
-            '        }',
-            '      }',
-            '    ],',
-            '    "action_items": [',
-            '      {',
-            '        "priority": "urgent|high|normal|low",',
-            '        "type": "document|contact|file|obtain|other",',
-            '        "description": "string",',
-            '        "deadline": "string or null"',
-            '      }',
-            '    ],',
-            '    "metadata": {',
-            '      "recording_timestamp": "ISO-8601 string or null",',
-            '      "recording_duration_seconds": number|null,',
-            '      "transcription_confidence": number|null,',
-            '      "extraction_confidence": number|null,',
-            '      "ambiguities": [ "string" ]',
-            '    }',
-            '  }',
-            '}',
-            '',
-            'Rules:',
-            '- If a field is unknown or not mentioned, set it to null, an empty array, or "unknown" where appropriate.',
-            '- Prefer under-extraction to guessing. Do not invent details.',
-            '- Keep tone neutral and factual.',
-            '- You may extract multiple events from a single transcript.',
-            `- When metadata.recording_timestamp is not otherwise clearly specified by the user, you may set it to the recording timestamp provided above: ${recordingTimestampIso}.`
-          ].join('\n')
+            {
+              type: 'input_text',
+              text: [
+                'You are an extraction engine for Project Daylight.',
+                'Given a voice note transcript from a parent in a custody situation, you must extract factual, legally relevant information only.',
+                'Do not provide advice, opinions, or legal conclusions.',
+                '',
+                `Assume the voice note was recorded at this timestamp (ISO-8601, server time): ${recordingTimestampIso}.`,
+                'Unless the user clearly specifies a different calendar date, assume their description refers to events occurring on the same calendar day as this recording timestamp.',
+                'When the user gives a time like "at 10am" or "around 3:30 PM", construct an ISO-8601 primary_timestamp using that time on the recording date. Set seconds to 0 and preserve the timezone from the recording timestamp.',
+                'For relative phrases like "this morning", "tonight", or "earlier today", choose a reasonable time on that same day and set timestamp_precision to "approximate".',
+                'If you cannot reasonably resolve a date or time, leave primary_timestamp as null and set timestamp_precision to "unknown".',
+                '',
+                'Rules:',
+                '- If a field is unknown or not mentioned, set it to null, an empty array, or "unknown" where appropriate.',
+                '- Prefer under-extraction to guessing. Do not invent details.',
+                '- Keep tone neutral and factual.',
+                '- You may extract multiple events from a single transcript.',
+                `- When metadata.recording_timestamp is not otherwise clearly specified by the user, you may set it to the recording timestamp provided above: ${recordingTimestampIso}.`
+              ].join('\n')
+            }
+          ]
         },
         {
           role: 'user',
-          content: transcript
+          content: [
+            {
+              type: 'input_text',
+              text: transcript
+            }
+          ]
         }
       ]
     })
 
-    const content = completion.choices[0]?.message?.content
-    const usage = completion.usage ?? null
+    // Use the parsed output from the Zod schema
+    const extraction = response.output_parsed
+    const usage = response.usage ?? null
 
-    if (!content) {
+    if (!extraction) {
       throw createError({
         statusCode: 502,
         statusMessage: 'Extraction model returned an empty response.'
       })
     }
 
-    let parsed: unknown
-
-    try {
-      parsed = JSON.parse(content)
-    } catch {
-      // If the model returned something non-JSON despite the response_format,
-      // wrap it in a simple envelope so the UI still shows something useful.
-      parsed = {
-        raw: content,
-        error: 'Model response was not valid JSON. Please try again.'
-      }
-    }
-
-    let payload: any = parsed
-
-    if (!payload || typeof payload !== 'object') {
-      payload = { raw: payload }
-    }
+    let payload: any = extraction
 
     // Attach token usage information from OpenAI
     payload._usage = usage
@@ -155,8 +168,8 @@ export default defineEventHandler(async (event) => {
       const outputRatePer1K = Number(process.env.OPENAI_GPT5_MINI_OUTPUT_RATE_USD_PER_1K_TOKENS || '0')
 
       if (inputRatePer1K > 0 || outputRatePer1K > 0) {
-        const inputTokens = usage.prompt_tokens ?? 0
-        const outputTokens = usage.completion_tokens ?? 0
+        const inputTokens = usage.input_tokens ?? 0
+        const outputTokens = usage.output_tokens ?? 0
 
         const inputCost = inputRatePer1K > 0 ? (inputTokens / 1000) * inputRatePer1K : 0
         const outputCost = outputRatePer1K > 0 ? (outputTokens / 1000) * outputRatePer1K : 0

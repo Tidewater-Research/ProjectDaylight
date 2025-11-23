@@ -1,4 +1,6 @@
 import OpenAI from 'openai'
+import { zodTextFormat } from 'openai/helpers/zod'
+import { z } from 'zod'
 
 interface EvidenceCommunicationExtractBody {
   /**
@@ -8,6 +10,61 @@ interface EvidenceCommunicationExtractBody {
    */
   imageUrl: string
 }
+
+// Define Zod schema for structured extraction
+const CommunicationSchema = z.object({
+  medium: z.enum(['text', 'email', 'unknown']).describe('The medium of communication'),
+  direction: z.enum(['incoming', 'outgoing', 'mixed', 'unknown']).describe('The direction of communication'),
+  subject: z.string().nullable().describe('Subject line if applicable (e.g., email)'),
+  summary: z.string().describe('1–2 sentence neutral summary of the communication'),
+  body_text: z.string().describe('The actual text content extracted from the image'),
+  participants: z.object({
+    from: z.string().nullable().describe('Sender of the communication'),
+    to: z.array(z.string()).describe('Recipients of the communication'),
+    others: z.array(z.string()).describe('Other participants mentioned or involved')
+  }),
+  sent_at: z.string().nullable().describe('ISO-8601 timestamp when the communication was sent'),
+  timestamp_precision: z.enum(['exact', 'approximate', 'unknown']).describe('How precise the timestamp is'),
+  child_involved: z.boolean().nullable().describe('Whether a child was involved in this communication'),
+  agreement_violation: z.boolean().nullable().describe('Whether this appears to violate an agreement'),
+  safety_concern: z.boolean().nullable().describe('Whether there are safety concerns'),
+  welfare_impact: z.enum(['none', 'minor', 'moderate', 'significant', 'positive', 'unknown']).describe('Impact on welfare')
+})
+
+const EventSuggestionSchema = z.object({
+  type: z.literal('communication').describe('Type of event'),
+  title: z.string().describe('Short neutral title for the event'),
+  description: z.string().describe('Factual description suitable for the timeline'),
+  primary_timestamp: z.string().nullable().describe('ISO-8601 timestamp for the event'),
+  timestamp_precision: z.enum(['exact', 'day', 'approximate', 'unknown']).describe('Precision of the timestamp'),
+  duration_minutes: z.number().nullable().describe('Duration in minutes if applicable'),
+  location: z.string().nullable().describe('Location if mentioned'),
+  child_involved: z.boolean().nullable().describe('Whether a child was involved'),
+  agreement_violation: z.boolean().nullable().describe('Whether this violates an agreement'),
+  safety_concern: z.boolean().nullable().describe('Whether there are safety concerns'),
+  welfare_impact: z.enum(['none', 'minor', 'moderate', 'significant', 'positive', 'unknown']).describe('Impact on welfare')
+})
+
+const EvidenceSuggestionSchema = z.object({
+  source_type: z.enum(['text', 'email', 'photo', 'document', 'recording', 'other']).describe('Type of evidence source'),
+  summary: z.string().describe('Suggested summary for evidence.summary field'),
+  tags: z.array(z.string()).describe('Suggested tags for categorization')
+})
+
+const ExtractionSchema = z.object({
+  extraction: z.object({
+    communications: z.array(CommunicationSchema).describe('Array of extracted communications'),
+    db_suggestions: z.object({
+      events: z.array(EventSuggestionSchema).describe('Suggested events for the database'),
+      evidence: z.array(EvidenceSuggestionSchema).describe('Suggested evidence records for the database')
+    }),
+    metadata: z.object({
+      image_analysis_confidence: z.number().nullable().describe('Confidence score for the image analysis'),
+      raw_ocr_text: z.string().describe('Raw OCR text extracted from the image'),
+      ambiguities: z.array(z.string()).describe('Notes about uncertain or ambiguous elements')
+    })
+  })
+})
 
 export default defineEventHandler(async (event) => {
   const config = useRuntimeConfig()
@@ -35,21 +92,18 @@ export default defineEventHandler(async (event) => {
     })
 
     /**
-     * Use the Responses API so we can accept an image + text instructions and
-     * ask for a JSON object matching the communications evidence schema.
+     * Use the Responses API with structured output parsing via Zod schemas.
+     * This provides type-safe validation and automatic JSON parsing.
      *
-     * The model should:
+     * The model will:
      * - Do OCR on the image.
      * - Infer medium (text vs email) when possible.
-     * - Produce a single JSON object with the "extraction" envelope described
-     *   in docs/evidence_communications_schema.md.
+     * - Produce a validated JSON object matching the communications evidence schema.
      */
-    const response = await openai.responses.create({
-      model: 'gpt-4.1-mini',
-      // In the Responses API, JSON-style output is requested via text.format.
-      // The format field itself is an object, mirroring the old response_format shape.
+    const response = await openai.responses.parse({
+      model: 'gpt-5-mini',
       text: {
-        format: { type: 'json_object' }
+        format: zodTextFormat(ExtractionSchema, 'extraction')
       },
       input: [
         {
@@ -67,61 +121,6 @@ export default defineEventHandler(async (event) => {
                 '- Extract a neutral, factual summary of what the communication shows.',
                 '- Suggest simple event and evidence payloads that fit the existing database schema.',
                 '',
-                'Return a SINGLE JSON object with this structure:',
-                '{',
-                '  "extraction": {',
-                '    "communications": [',
-                '      {',
-                '        "medium": "text|email|unknown",',
-                '        "direction": "incoming|outgoing|mixed|unknown",',
-                '        "subject": "string or null",',
-                '        "summary": "1–2 sentence neutral summary",',
-                '        "body_text": "text content from the image",',
-                '        "participants": {',
-                '          "from": "string or null",',
-                '          "to": ["string"],',
-                '          "others": ["string"]',
-                '        },',
-                '        "sent_at": "ISO-8601 string or null",',
-                '        "timestamp_precision": "exact|approximate|unknown",',
-                '        "child_involved": boolean | null,',
-                '        "agreement_violation": boolean | null,',
-                '        "safety_concern": boolean | null,',
-                '        "welfare_impact": "none|minor|moderate|significant|positive|unknown"',
-                '      }',
-                '    ],',
-                '    "db_suggestions": {',
-                '      "events": [',
-                '        {',
-                '          "type": "communication",',
-                '          "title": "Short neutral title",',
-                '          "description": "Factual description suitable for the timeline",',
-                '          "primary_timestamp": "ISO-8601 string or null",',
-                '          "timestamp_precision": "exact|day|approximate|unknown",',
-                '          "duration_minutes": number | null,',
-                '          "location": "string or null",',
-                '          "child_involved": boolean | null,',
-                '          "agreement_violation": boolean | null,',
-                '          "safety_concern": boolean | null,',
-                '          "welfare_impact": "none|minor|moderate|significant|positive|unknown"',
-                '        }',
-                '      ],',
-                '      "evidence": [',
-                '        {',
-                '          "source_type": "text|email|photo|document|recording|other",',
-                '          "summary": "Suggested summary for evidence.summary",',
-                '          "tags": ["communication", "optional additional tags"]',
-                '        }',
-                '      ]',
-                '    },',
-                '    "metadata": {',
-                '      "image_analysis_confidence": number | null,',
-                '      "raw_ocr_text": "string with best-effort OCR",',
-                '      "ambiguities": ["string notes about anything uncertain"]',
-                '    }',
-                '  }',
-                '}',
-                '',
                 'Rules:',
                 '- If a field is unknown or not visible, prefer null, "unknown", or an empty array instead of guessing.',
                 '- Keep tone neutral and factual.',
@@ -137,48 +136,30 @@ export default defineEventHandler(async (event) => {
           content: [
             {
               type: 'input_text',
-              text: 'Here is the communication evidence screenshot. Extract it into the JSON structure described above.'
+              text: 'Here is the communication evidence screenshot. Extract it into the structured format.'
             },
             {
               type: 'input_image',
-              // Pass a data URL string directly (e.g. data:image/jpeg;base64,...) as in the
-              // official Responses API examples.
-              image_url: imageUrl
+              image_url: imageUrl,
+              detail: 'high' // Use 'high' detail for better OCR quality
             }
           ]
         }
       ]
     })
 
-    // For JSON output we can use the convenience accessor output_text, which
-    // will be the text content produced by the model. Since we requested
-    // text.format = 'json_object', this should be a JSON string.
-    const text = (response as any).output_text ?? null
+    // Use the parsed output from the Zod schema
+    const extraction = response.output_parsed
     const usage = response.usage ?? null
 
-    if (!text) {
+    if (!extraction) {
       throw createError({
         statusCode: 502,
         statusMessage: 'Extraction model returned an empty response.'
       })
     }
 
-    let parsed: unknown
-
-    try {
-      parsed = JSON.parse(text)
-    } catch {
-      parsed = {
-        raw: text,
-        error: 'Model response was not valid JSON. Please try again.'
-      }
-    }
-
-    let payload: any = parsed
-
-    if (!payload || typeof payload !== 'object') {
-      payload = { raw: payload }
-    }
+    let payload: any = extraction
 
     // Attach token usage information from OpenAI, mirroring voice-extraction.
     payload._usage = usage
@@ -200,7 +181,7 @@ export default defineEventHandler(async (event) => {
       }
 
       payload._cost = {
-        model: 'gpt-4.1-mini',
+        model: 'gpt-5-mini',
         currency: 'USD',
         total_usd: costEstimateUsd,
         input_rate_per_1k: process.env.OPENAI_GPT4_1_MINI_INPUT_RATE_USD_PER_1K_TOKENS || null,
