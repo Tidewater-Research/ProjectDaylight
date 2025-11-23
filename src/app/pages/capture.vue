@@ -13,6 +13,18 @@ const error = ref<string | null>(null)
 const extractionError = ref<string | null>(null)
 const extractionResult = ref<any | null>(null)
 
+// Tab state: audio vs communications evidence
+const activeCaptureTab = ref<'audio' | 'communications'>('audio')
+
+// Communications evidence (file -> image data URL -> structured evidence)
+const communicationImageUrl = ref('') // data URL or external URL for the selected image
+const communicationImageName = ref('')
+const hasCommunicationImage = computed(() => communicationImageUrl.value.trim().length > 0)
+const isCommExtracting = ref(false)
+const commExtractionError = ref<string | null>(null)
+const commExtractionResult = ref<any | null>(null)
+const commExtractionViewMode = ref<'pretty' | 'raw'>('pretty')
+
 const captureText = ref('')
 const hasCaptureText = computed(() => captureText.value.trim().length > 0)
 
@@ -312,6 +324,77 @@ const extractionCost = computed(() => {
 
   return extractionResult.value._cost || extractionResult.value.cost || null
 })
+
+const commExtractionUsage = computed(() => {
+  if (!commExtractionResult.value) {
+    return null
+  }
+
+  return commExtractionResult.value._usage || commExtractionResult.value.usage || null
+})
+
+const commExtractionCost = computed(() => {
+  if (!commExtractionResult.value) {
+    return null
+  }
+
+  return commExtractionResult.value._cost || commExtractionResult.value.cost || null
+})
+
+function onCommunicationFileChange(event: Event) {
+  const target = event.target as HTMLInputElement | null
+  const file = target?.files?.[0]
+
+  commExtractionError.value = null
+  commExtractionResult.value = null
+
+  if (!file) {
+    communicationImageName.value = ''
+    communicationImageUrl.value = ''
+    return
+  }
+
+  communicationImageName.value = file.name
+
+  const reader = new FileReader()
+  reader.onload = () => {
+    if (typeof reader.result === 'string') {
+      // Use a data URL so we don't need to store the image anywhere; OpenAI
+      // can consume data URLs via image_url.
+      communicationImageUrl.value = reader.result
+    }
+  }
+  reader.readAsDataURL(file)
+}
+
+async function extractFromCommunicationImage() {
+  if (!hasCommunicationImage.value || isCommExtracting.value) {
+    return
+  }
+
+  isCommExtracting.value = true
+  commExtractionError.value = null
+  commExtractionResult.value = null
+
+  try {
+    commExtractionViewMode.value = 'pretty'
+
+    const result = await $fetch<any>('/api/evidence-communication-extract', {
+      method: 'POST',
+      body: {
+        imageUrl: communicationImageUrl.value.trim()
+      }
+    })
+
+    commExtractionResult.value = result
+  } catch (e: any) {
+    // eslint-disable-next-line no-console
+    console.error(e)
+    commExtractionError.value = e?.data?.statusMessage || 'Failed to run communication extraction. Please check the image URL and try again.'
+  } finally {
+    isCommExtracting.value = false
+  }
+}
 </script>
 
 <template>
@@ -326,7 +409,24 @@ const extractionCost = computed(() => {
 
     <template #body>
       <div class="max-w-2xl w-full mx-auto space-y-6">
-        <UCard>
+        <UTabs
+          v-model="activeCaptureTab"
+          :items="[
+            {
+              label: 'Voice \u2192 Events',
+              value: 'audio',
+              icon: 'i-lucide-mic'
+            },
+            {
+              label: 'Image \u2192 Communications Evidence',
+              value: 'communications',
+              icon: 'i-lucide-image'
+            }
+          ]"
+          color="primary"
+        />
+
+        <UCard v-if="activeCaptureTab === 'audio'">
           <template #header>
             <div class="flex items-center justify-between gap-2">
               <div>
@@ -440,7 +540,7 @@ const extractionCost = computed(() => {
                   variant="outline"
                   :rows="4"
                   class="w-full"
-                  placeholder="Example: &quot;Tonight the kids were scheduled to be dropped off at 6:00 PM...&quot;"
+                  placeholder="Example note about an incident or positive parenting moment..."
                 />
                 <div class="flex justify-end">
                   <UButton
@@ -768,6 +868,483 @@ const extractionCost = computed(() => {
               title="Audio capture not available"
               description="Your browser does not support microphone access. Try using a modern browser like Chrome, Edge, or Safari."
             />
+          </div>
+        </UCard>
+
+        <UCard v-else>
+          <template #header>
+            <div class="flex items-center justify-between gap-2">
+              <div>
+                <p class="font-medium text-highlighted">
+                  Communications Evidence (Image &rarr; Structured JSON)
+                </p>
+                <p class="text-sm text-muted">
+                  Select a screenshot of texts or email from your device and we&apos;ll extract a structured
+                  communications object plus suggested event/evidence payloads. The image is sent once to the AI
+                  service and not stored in Supabase for this demo.
+                </p>
+              </div>
+            </div>
+          </template>
+
+          <div class="space-y-4">
+            <div class="space-y-2">
+              <p class="text-sm font-medium text-highlighted">
+                Image file
+              </p>
+              <p class="text-xs text-muted">
+                Choose a screenshot or photo of a communication (text thread, email, etc.). We&apos;ll read it in the
+                browser and send it directly to the AI API without storing it.
+              </p>
+              <input
+                type="file"
+                accept="image/*"
+                class="block w-full text-sm text-muted file:mr-4 file:py-2 file:px-3 file:rounded-md file:border-0 file:text-sm file:font-medium file:bg-primary/10 file:text-primary hover:file:bg-primary/20"
+                @change="onCommunicationFileChange"
+              />
+              <p
+                v-if="communicationImageName"
+                class="text-xs text-muted"
+              >
+                Selected:
+                <span class="font-medium text-highlighted">
+                  {{ communicationImageName }}
+                </span>
+              </p>
+            </div>
+
+            <div class="flex justify-end">
+              <UButton
+                color="primary"
+                variant="solid"
+                size="sm"
+                icon="i-lucide-sparkles"
+                :loading="isCommExtracting"
+                :disabled="!hasCommunicationImage || isCommExtracting"
+                @click="extractFromCommunicationImage"
+              >
+                Extract communications evidence
+              </UButton>
+            </div>
+
+            <div
+              v-if="commExtractionResult"
+              class="space-y-2"
+            >
+              <div class="flex items-center justify-between gap-2">
+                <p class="text-sm font-medium text-highlighted">
+                  Extraction result
+                </p>
+                <div class="inline-flex rounded-lg border border-default overflow-hidden">
+                  <UButton
+                    color="neutral"
+                    size="xs"
+                    :variant="commExtractionViewMode === 'pretty' ? 'solid' : 'ghost'"
+                    class="rounded-none"
+                    @click="commExtractionViewMode = 'pretty'"
+                  >
+                    Pretty
+                  </UButton>
+                  <UButton
+                    color="neutral"
+                    size="xs"
+                    :variant="commExtractionViewMode === 'raw' ? 'solid' : 'ghost'"
+                    class="rounded-none border-l border-default"
+                    @click="commExtractionViewMode = 'raw'"
+                  >
+                    Raw JSON
+                  </UButton>
+                </div>
+              </div>
+
+              <div
+                v-if="commExtractionUsage || commExtractionCost"
+                class="flex flex-wrap items-center gap-2 text-[11px] text-muted"
+              >
+                <span v-if="commExtractionUsage">
+                  Tokens:
+                  <span class="font-medium text-highlighted">
+                    {{ commExtractionUsage.total_tokens ?? (commExtractionUsage.input_tokens ?? 0) + (commExtractionUsage.output_tokens ?? 0) }}
+                  </span>
+                </span>
+                <span v-if="commExtractionCost?.total_usd !== null && commExtractionCost?.total_usd !== undefined">
+                  • Est. cost:
+                  <span class="font-medium text-highlighted">
+                    ${{ commExtractionCost.total_usd.toFixed(6) }}
+                  </span>
+                </span>
+              </div>
+
+              <div v-if="commExtractionViewMode === 'pretty'" class="space-y-4">
+                <div v-if="commExtractionResult?.extraction?.communications?.length" class="space-y-2">
+                  <p class="text-xs font-medium text-muted uppercase tracking-wide">
+                    Communications
+                  </p>
+                  <div
+                    v-for="(comm, index) in commExtractionResult.extraction.communications"
+                    :key="index"
+                    class="border border-default rounded-lg p-3 space-y-2 bg-subtle"
+                  >
+                    <div class="flex items-start justify-between gap-2">
+                      <div>
+                        <div class="flex items-center gap-2">
+                          <p class="text-sm font-medium text-highlighted">
+                            {{ comm.summary || 'Communication' }}
+                          </p>
+                          <UBadge
+                            v-if="comm.medium"
+                            color="info"
+                            variant="subtle"
+                            size="xs"
+                            class="uppercase tracking-wide"
+                          >
+                            {{ comm.medium }}
+                          </UBadge>
+                          <UBadge
+                            v-if="comm.direction"
+                            color="neutral"
+                            variant="soft"
+                            size="xs"
+                            class="uppercase tracking-wide"
+                          >
+                            {{ comm.direction }}
+                          </UBadge>
+                        </div>
+                        <p
+                          v-if="comm.body_text"
+                          class="text-xs text-muted mt-1 line-clamp-3"
+                        >
+                          {{ comm.body_text }}
+                        </p>
+                      </div>
+                      <div class="text-right space-y-1">
+                        <p
+                          v-if="comm.sent_at"
+                          class="text-xs text-muted"
+                        >
+                          {{ comm.sent_at }}
+                        </p>
+                        <p
+                          v-if="comm.timestamp_precision"
+                          class="text-[10px] text-muted uppercase tracking-wide"
+                        >
+                          {{ comm.timestamp_precision }}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div class="flex flex-wrap gap-3 text-[11px] text-muted">
+                      <div v-if="comm.participants?.from">
+                        <span class="font-medium text-highlighted">From:</span>
+                        {{ comm.participants.from }}
+                      </div>
+                      <div v-if="comm.participants?.to?.length">
+                        <span class="font-medium text-highlighted">To:</span>
+                        {{ comm.participants.to.join(', ') }}
+                      </div>
+                      <div v-if="comm.participants?.others?.length">
+                        <span class="font-medium text-highlighted">Others:</span>
+                        {{ comm.participants.others.join(', ') }}
+                      </div>
+                    </div>
+
+                    <div
+                      v-if="comm.welfare_impact"
+                      class="text-[11px] text-muted"
+                    >
+                      <span class="font-medium text-highlighted">Welfare impact:</span>
+                      {{ comm.welfare_impact }}
+                    </div>
+
+                    <div class="flex justify-end">
+                      <UModal>
+                        <UButton
+                          color="neutral"
+                          variant="ghost"
+                          size="xs"
+                          icon="i-lucide-info"
+                        >
+                          View details
+                        </UButton>
+
+                        <template #content>
+                          <UCard>
+                            <template #header>
+                              <div class="flex items-center justify-between gap-2">
+                                <p class="font-medium text-highlighted">
+                                  Communication details
+                                </p>
+                                <UBadge
+                                  v-if="comm.medium"
+                                  color="info"
+                                  variant="subtle"
+                                  size="xs"
+                                  class="uppercase tracking-wide"
+                                >
+                                  {{ comm.medium }}
+                                </UBadge>
+                              </div>
+                            </template>
+
+                            <div class="space-y-3">
+                              <div v-if="comm.body_text">
+                                <p class="text-xs font-medium text-highlighted">
+                                  Body text
+                                </p>
+                                <p class="text-xs text-muted whitespace-pre-wrap">
+                                  {{ comm.body_text }}
+                                </p>
+                              </div>
+
+                              <div v-if="comm.participants" class="space-y-1 text-[11px] text-muted">
+                                <p class="text-xs font-medium text-highlighted">
+                                  Participants
+                                </p>
+                                <p v-if="comm.participants.from">
+                                  <span class="font-medium text-highlighted">From:</span>
+                                  {{ comm.participants.from }}
+                                </p>
+                                <p v-if="comm.participants.to?.length">
+                                  <span class="font-medium text-highlighted">To:</span>
+                                  {{ comm.participants.to.join(', ') }}
+                                </p>
+                                <p v-if="comm.participants.others?.length">
+                                  <span class="font-medium text-highlighted">Others:</span>
+                                  {{ comm.participants.others.join(', ') }}
+                                </p>
+                              </div>
+
+                              <div class="grid grid-cols-1 gap-1 text-[11px] text-muted">
+                                <p v-if="comm.child_involved !== undefined && comm.child_involved !== null">
+                                  <span class="font-medium text-highlighted">Child involved:</span>
+                                  {{ comm.child_involved ? 'Yes' : 'No' }}
+                                </p>
+                                <p v-if="comm.agreement_violation !== undefined && comm.agreement_violation !== null">
+                                  <span class="font-medium text-highlighted">Agreement violation:</span>
+                                  {{ comm.agreement_violation ? 'Yes' : 'No' }}
+                                </p>
+                                <p v-if="comm.safety_concern !== undefined && comm.safety_concern !== null">
+                                  <span class="font-medium text-highlighted">Safety concern:</span>
+                                  {{ comm.safety_concern ? 'Yes' : 'No' }}
+                                </p>
+                                <p v-if="comm.welfare_impact">
+                                  <span class="font-medium text-highlighted">Welfare impact:</span>
+                                  {{ comm.welfare_impact }}
+                                </p>
+                              </div>
+
+                              <div>
+                                <p class="text-xs font-medium text-highlighted mb-1">
+                                  Full JSON
+                                </p>
+                                <UTextarea
+                                  :model-value="JSON.stringify(comm, null, 2)"
+                                  color="neutral"
+                                  variant="subtle"
+                                  readonly
+                                  :rows="10"
+                                  class="font-mono text-[11px] w-full"
+                                />
+                              </div>
+                            </div>
+                          </UCard>
+                        </template>
+                      </UModal>
+                    </div>
+                  </div>
+                </div>
+
+                <div v-if="commExtractionResult?.extraction?.db_suggestions?.events?.length" class="space-y-2">
+                  <p class="text-xs font-medium text-muted uppercase tracking-wide">
+                    Suggested event (for events table)
+                  </p>
+                  <div
+                    v-for="(eventItem, index) in commExtractionResult.extraction.db_suggestions.events"
+                    :key="index"
+                    class="border border-dashed border-default rounded-lg p-3 space-y-2"
+                  >
+                    <div class="flex items-start justify-between gap-2">
+                      <div>
+                        <div class="flex items-center gap-2">
+                          <p class="text-sm font-medium text-highlighted">
+                            {{ eventItem.title || 'Suggested communication event' }}
+                          </p>
+                          <UBadge
+                            v-if="eventItem.type"
+                            :color="eventColor(eventItem.type)"
+                            variant="subtle"
+                            size="xs"
+                            class="uppercase tracking-wide"
+                          >
+                            {{ eventItem.type }}
+                          </UBadge>
+                        </div>
+                        <p
+                          v-if="eventItem.description"
+                          class="text-xs text-muted mt-1"
+                        >
+                          {{ eventItem.description }}
+                        </p>
+                      </div>
+                      <div class="text-right space-y-1">
+                        <p
+                          v-if="eventItem.primary_timestamp"
+                          class="text-xs text-muted"
+                        >
+                          {{ eventItem.primary_timestamp }}
+                        </p>
+                        <p
+                          v-if="eventItem.timestamp_precision"
+                          class="text-[10px] text-muted uppercase tracking-wide"
+                        >
+                          {{ eventItem.timestamp_precision }}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div class="flex justify-end">
+                      <UModal>
+                        <UButton
+                          color="neutral"
+                          variant="ghost"
+                          size="xs"
+                          icon="i-lucide-info"
+                        >
+                          View event JSON
+                        </UButton>
+
+                        <template #content>
+                          <UCard>
+                            <template #header>
+                              <p class="font-medium text-highlighted">
+                                Suggested event JSON
+                              </p>
+                            </template>
+
+                            <UTextarea
+                              :model-value="JSON.stringify(eventItem, null, 2)"
+                              color="neutral"
+                              variant="subtle"
+                              readonly
+                              :rows="14"
+                              class="font-mono text-[11px] w-full"
+                            />
+                          </UCard>
+                        </template>
+                      </UModal>
+                    </div>
+                  </div>
+                </div>
+
+                <div v-if="commExtractionResult?.extraction?.db_suggestions?.evidence?.length" class="space-y-2">
+                  <p class="text-xs font-medium text-muted uppercase tracking-wide">
+                    Suggested evidence (for evidence table)
+                  </p>
+                  <div
+                    v-for="(ev, index) in commExtractionResult.extraction.db_suggestions.evidence"
+                    :key="index"
+                    class="border border-dashed border-default rounded-lg p-3 space-y-2"
+                  >
+                    <div class="flex items-start justify-between gap-2">
+                      <div>
+                        <div class="flex items-center gap-2">
+                          <p class="text-sm font-medium text-highlighted">
+                            {{ ev.summary || 'Suggested evidence summary' }}
+                          </p>
+                          <UBadge
+                            v-if="ev.source_type"
+                            color="primary"
+                            variant="subtle"
+                            size="xs"
+                            class="uppercase tracking-wide"
+                          >
+                            {{ ev.source_type }}
+                          </UBadge>
+                        </div>
+                        <p
+                          v-if="ev.tags?.length"
+                          class="text-[11px] text-muted mt-1"
+                        >
+                          <span class="font-medium text-highlighted">Tags:</span>
+                          {{ ev.tags.join(', ') }}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div class="flex justify-end">
+                      <UModal>
+                        <UButton
+                          color="neutral"
+                          variant="ghost"
+                          size="xs"
+                          icon="i-lucide-info"
+                        >
+                          View evidence JSON
+                        </UButton>
+
+                        <template #content>
+                          <UCard>
+                            <template #header>
+                              <p class="font-medium text-highlighted">
+                                Suggested evidence JSON
+                              </p>
+                            </template>
+
+                            <UTextarea
+                              :model-value="JSON.stringify(ev, null, 2)"
+                              color="neutral"
+                              variant="subtle"
+                              readonly
+                              :rows="14"
+                              class="font-mono text-[11px] w-full"
+                            />
+                          </UCard>
+                        </template>
+                      </UModal>
+                    </div>
+                  </div>
+                </div>
+
+                <div v-if="commExtractionResult?.extraction?.metadata" class="space-y-1">
+                  <p class="text-xs font-medium text-muted uppercase tracking-wide">
+                    Metadata
+                  </p>
+                  <div class="grid grid-cols-1 gap-1 text-[11px] text-muted">
+                    <p v-if="commExtractionResult.extraction.metadata.image_analysis_confidence !== undefined && commExtractionResult.extraction.metadata.image_analysis_confidence !== null">
+                      <span class="font-medium text-highlighted">Image analysis confidence:</span>
+                      {{ commExtractionResult.extraction.metadata.image_analysis_confidence }}
+                    </p>
+                    <p v-if="commExtractionResult.extraction.metadata.ambiguities?.length">
+                      <span class="font-medium text-highlighted">Ambiguities:</span>
+                      {{ commExtractionResult.extraction.metadata.ambiguities.join('; ') }}
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              <div v-else>
+                <p class="text-xs text-muted">
+                  Raw JSON output from the communications extraction model.
+                </p>
+                <UTextarea
+                  :model-value="JSON.stringify(commExtractionResult, null, 2)"
+                  color="neutral"
+                  variant="subtle"
+                  readonly
+                  :rows="10"
+                  class="font-mono text-xs w-full"
+                />
+              </div>
+            </div>
+
+            <UAlert
+              v-if="commExtractionError"
+              color="error"
+              variant="subtle"
+              title="Extraction failed"
+              :description="commExtractionError"
+            />
+
           </div>
         </UCard>
       </div>
