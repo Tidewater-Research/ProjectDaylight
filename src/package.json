@@ -21,6 +21,7 @@
     "@unovis/ts": "^1.6.1",
     "@unovis/vue": "^1.6.1",
     "@vueuse/nuxt": "^13.9.0",
+    "jspdf": "^2.5.1",
     "better-sqlite3": "^12.4.6",
     "date-fns": "^4.1.0",
     "h3-formidable": "^1.0.0",

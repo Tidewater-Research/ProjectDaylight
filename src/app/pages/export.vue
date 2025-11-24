@@ -31,6 +31,7 @@ const markdown = ref('')
 const generating = ref(false)
 const copied = ref(false)
 const showRendered = ref(false)
+const pdfGenerating = ref(false)
 
 const isLoadingData = computed(
   () => timelineStatus.value === 'pending' || evidenceStatus.value === 'pending'
@@ -288,6 +289,287 @@ async function copyToClipboard() {
     })
   }
 }
+
+async function downloadPdf() {
+  if (!process.client) return
+
+  // Ensure we have up-to-date markdown
+  if (!markdown.value) {
+    await generateMarkdown()
+    if (!markdown.value) {
+      return
+    }
+  }
+
+  pdfGenerating.value = true
+
+  try {
+    const { jsPDF } = await import('jspdf')
+
+    const doc = new jsPDF({
+      unit: 'pt',
+      format: 'letter'
+    })
+
+    const margin = 54 // 0.75 inch
+    const pageWidth = doc.internal.pageSize.getWidth()
+    const pageHeight = doc.internal.pageSize.getHeight()
+    const contentWidth = pageWidth - margin * 2
+    
+    let cursorY = margin
+    const lineHeight = 14 // for 10pt text
+    
+    // Helper: Check for page break
+    const ensureSpace = (height: number) => {
+      if (cursorY + height > pageHeight - margin) {
+        doc.addPage()
+        cursorY = margin
+        return true
+      }
+      return false
+    }
+
+    // --- HEADER ---
+    doc.setFont('helvetica', 'bold')
+    doc.setFontSize(18)
+    doc.text('Custody case timeline & evidence summary', margin, cursorY)
+    cursorY += 30
+
+    doc.setFont('helvetica', 'normal')
+    doc.setFontSize(10)
+    
+    // Case Meta
+    const metaLines = []
+    if (caseTitle.value.trim()) metaLines.push({ label: 'Case:', value: caseTitle.value.trim() })
+    if (courtName.value.trim()) metaLines.push({ label: 'Court:', value: courtName.value.trim() })
+    if (recipient.value.trim()) metaLines.push({ label: 'Prepared for:', value: recipient.value.trim() })
+    metaLines.push({ label: 'Generated on:', value: new Date().toLocaleString() })
+
+    metaLines.forEach(meta => {
+      doc.setFont('helvetica', 'bold')
+      doc.text(meta.label, margin, cursorY)
+      const labelWidth = doc.getTextWidth(meta.label)
+      
+      doc.setFont('helvetica', 'normal')
+      doc.text(meta.value, margin + labelWidth + 5, cursorY)
+      
+      cursorY += 16
+    })
+
+    cursorY += 10
+    doc.setDrawColor(200, 200, 200)
+    doc.line(margin, cursorY, pageWidth - margin, cursorY)
+    cursorY += 25
+
+    // --- SECTION 1: OVERVIEW ---
+    if (includeOverview.value) {
+      ensureSpace(100)
+      
+      doc.setFont('helvetica', 'bold')
+      doc.setFontSize(14)
+      doc.text('1. Overview', margin, cursorY)
+      cursorY += 20
+      
+      doc.setFont('helvetica', 'normal')
+      doc.setFontSize(10)
+      
+      const overviewText = overviewNotes.value.trim() || 'Use this section to briefly explain the current status of your case, upcoming court dates, and what you want the court or your attorney to understand.'
+      
+      const splitOverview = doc.splitTextToSize(overviewText, contentWidth)
+      
+      if (ensureSpace(splitOverview.length * 14)) {
+        // If page break happened, reprint header? No, just continue text
+      }
+      
+      doc.text(splitOverview, margin, cursorY)
+      cursorY += (splitOverview.length * 14) + 25
+    }
+
+    // --- SECTION 2: TIMELINE ---
+    ensureSpace(50)
+    doc.setFont('helvetica', 'bold')
+    doc.setFontSize(14)
+    doc.text('2. Timeline of key events', margin, cursorY)
+    cursorY += 20
+
+    const events = filteredEvents.value
+    
+    if (!events.length) {
+      doc.setFont('helvetica', 'italic')
+      doc.setFontSize(10)
+      doc.text('No events found for this export.', margin, cursorY)
+      cursorY += 20
+    } else {
+      events.forEach((event, index) => {
+        // Calculate space needed roughly (header + desc + meta + spacing)
+        const descLines = event.description ? doc.splitTextToSize(event.description, contentWidth - 15).length : 0
+        const metaCount = (event.location ? 1 : 0) + (event.participants?.length ? 1 : 0) + (event.evidenceIds?.length ? 1 : 0)
+        const estimatedHeight = 20 + (descLines * 14) + (metaCount * 14) + 10
+        
+        ensureSpace(estimatedHeight)
+
+        // Event Header: 1. Date - Title (Type)
+        doc.setFont('helvetica', 'normal')
+        doc.setFontSize(10)
+        doc.setTextColor(100, 100, 100) // Gray for date
+        
+        const dateStr = formatDate(event.timestamp)
+        const dateWidth = doc.getTextWidth(dateStr)
+        const numberStr = `${index + 1}. `
+        
+        doc.setTextColor(0, 0, 0)
+        doc.text(numberStr, margin, cursorY)
+        
+        doc.setTextColor(80, 80, 80)
+        doc.text(dateStr, margin + 15, cursorY)
+        
+        // Title (Bold)
+        doc.setTextColor(0, 0, 0)
+        doc.setFont('helvetica', 'bold')
+        const titleX = margin + 15 + dateWidth + 10 // Spacing
+        doc.text(event.title, titleX, cursorY)
+        
+        // Type (Gray, Italic, Right aligned or Next to title?)
+        // Let's put it in parens after title
+        const titleWidth = doc.getTextWidth(event.title)
+        doc.setFont('helvetica', 'italic')
+        doc.setTextColor(100, 100, 100)
+        doc.text(`(${formatEventType(event.type)})`, titleX + titleWidth + 5, cursorY)
+        
+        cursorY += 16
+
+        // Description
+        if (event.description) {
+          doc.setFont('helvetica', 'normal')
+          doc.setTextColor(0, 0, 0)
+          const splitDesc = doc.splitTextToSize(event.description, contentWidth - 15)
+          doc.text(splitDesc, margin + 15, cursorY)
+          cursorY += (splitDesc.length * 14) + 4
+        }
+
+        // Metadata (Location, Participants, Evidence)
+        doc.setFontSize(9)
+        doc.setTextColor(80, 80, 80)
+        
+        if (event.location) {
+          doc.text(`Location: ${event.location}`, margin + 15, cursorY)
+          cursorY += 12
+        }
+        
+        if (event.participants?.length) {
+          doc.text(`Participants: ${event.participants.join(', ')}`, margin + 15, cursorY)
+          cursorY += 12
+        }
+
+        if (event.evidenceIds?.length) {
+          doc.setTextColor(0, 100, 200) // Link colorish
+          doc.text(`Evidence IDs: ${event.evidenceIds.join(', ')}`, margin + 15, cursorY)
+          doc.setTextColor(80, 80, 80)
+          cursorY += 12
+        }
+
+        cursorY += 10 // Spacing between events
+      })
+    }
+    
+    cursorY += 15
+
+    // --- SECTION 3: EVIDENCE INDEX ---
+    if (includeEvidenceIndex.value) {
+      ensureSpace(50)
+      doc.setFont('helvetica', 'bold')
+      doc.setFontSize(14)
+      doc.setTextColor(0, 0, 0)
+      doc.text('3. Evidence index', margin, cursorY)
+      cursorY += 20
+
+      if (!evidence.value.length) {
+        doc.setFont('helvetica', 'italic')
+        doc.setFontSize(10)
+        doc.text('No evidence items found for this export.', margin, cursorY)
+      } else {
+        evidence.value.forEach((item, index) => {
+          // Calc height
+          const summaryLines = item.summary ? doc.splitTextToSize(item.summary, contentWidth - 15).length : 0
+          const metaHeight = item.tags?.length ? 14 : 0
+          const estimatedHeight = 20 + (summaryLines * 14) + metaHeight + 10
+          
+          ensureSpace(estimatedHeight)
+
+          // Item Header: 1. [Date] Name (Type)
+          doc.setFont('helvetica', 'normal')
+          doc.setFontSize(10)
+          
+          const numberStr = `${index + 1}. `
+          doc.text(numberStr, margin, cursorY)
+          
+          const dateStr = `[${formatDate(item.createdAt)}] `
+          doc.setTextColor(80, 80, 80)
+          doc.text(dateStr, margin + 15, cursorY)
+          const dateWidth = doc.getTextWidth(dateStr)
+          
+          doc.setTextColor(0, 0, 0)
+          doc.setFont('helvetica', 'bold')
+          doc.text(item.originalName, margin + 15 + dateWidth, cursorY)
+          const nameWidth = doc.getTextWidth(item.originalName)
+          
+          doc.setFont('helvetica', 'italic')
+          doc.setTextColor(100, 100, 100)
+          doc.text(`(${item.sourceType})`, margin + 15 + dateWidth + nameWidth + 5, cursorY)
+          
+          cursorY += 16
+
+          if (item.summary) {
+            doc.setFont('helvetica', 'normal')
+            doc.setTextColor(0, 0, 0)
+            const splitSummary = doc.splitTextToSize(item.summary, contentWidth - 15)
+            doc.text(splitSummary, margin + 15, cursorY)
+            cursorY += (splitSummary.length * 14) + 4
+          }
+
+          if (item.tags?.length) {
+            doc.setFontSize(9)
+            doc.setTextColor(80, 80, 80)
+            doc.text(`Tags: ${item.tags.join(', ')}`, margin + 15, cursorY)
+            cursorY += 12
+          }
+          
+          cursorY += 10
+        })
+      }
+    }
+    
+    // Footer - page numbering
+    const pageCount = (doc as any).getNumberOfPages ? (doc as any).getNumberOfPages() : doc.internal.pages.length - 1
+    for (let i = 1; i <= pageCount; i++) {
+      doc.setPage(i)
+      doc.setFontSize(8)
+      doc.setTextColor(150, 150, 150)
+      doc.text(`Project Daylight - Page ${i} of ${pageCount}`, margin, pageHeight - 20)
+    }
+
+    doc.save('project-daylight-report.pdf')
+
+    toast.add({
+      title: 'PDF ready',
+      description: 'Your report has been downloaded as a PDF.',
+      icon: 'i-lucide-file-down',
+      color: 'success'
+    })
+  } catch (e) {
+    // eslint-disable-next-line no-console
+    console.error('[Export] Failed to generate PDF:', e)
+
+    toast.add({
+      title: 'PDF failed',
+      description: 'We were unable to generate the PDF. Please try again.',
+      icon: 'i-lucide-triangle-alert',
+      color: 'error'
+    })
+  } finally {
+    pdfGenerating.value = false
+  }
+}
 </script>
 
 <template>
@@ -466,17 +748,31 @@ async function copyToClipboard() {
                   </p>
                 </div>
 
-                <UButton
-                  color="neutral"
-                  variant="outline"
-                  size="xs"
-                  icon="i-lucide-clipboard"
-                  :disabled="!markdown"
-                  @click="copyToClipboard"
-                >
-                  <span v-if="copied">Copied</span>
-                  <span v-else>Copy</span>
-                </UButton>
+                <div class="flex items-center gap-2">
+                  <UButton
+                    color="neutral"
+                    variant="outline"
+                    size="xs"
+                    icon="i-lucide-clipboard"
+                    :disabled="!markdown"
+                    @click="copyToClipboard"
+                  >
+                    <span v-if="copied">Copied</span>
+                    <span v-else>Copy</span>
+                  </UButton>
+
+                  <UButton
+                    color="primary"
+                    variant="solid"
+                    size="xs"
+                    icon="i-lucide-file-down"
+                    :disabled="!markdown"
+                    :loading="pdfGenerating"
+                    @click="downloadPdf"
+                  >
+                    PDF
+                  </UButton>
+                </div>
               </div>
             </template>
 
