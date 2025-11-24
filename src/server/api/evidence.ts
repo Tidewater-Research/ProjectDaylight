@@ -1,66 +1,102 @@
-import { sub } from 'date-fns'
 import type { EvidenceItem } from '~/types'
+import type { Tables } from '~/types/database.types'
+import { serverSupabaseServiceRole, serverSupabaseUser } from '#supabase/server'
 
-const evidenceItems: EvidenceItem[] = [{
-  id: 1,
-  sourceType: 'photo',
-  originalName: 'school_pickup_timestamp.jpg',
-  createdAt: sub(new Date(), { hours: 5 }).toISOString(),
-  summary: 'Screenshot of school clock and hallway showing pickup time after dismissal.',
-  tags: ['school', 'pickup', 'timing']
-}, {
-  id: 2,
-  sourceType: 'text',
-  originalName: 'sms_thread_late_pickup.txt',
-  createdAt: sub(new Date(), { hours: 4, minutes: 30 }).toISOString(),
-  summary: 'Text exchange where co-parent confirms being stuck in traffic and arriving late.',
-  tags: ['communication', 'pickup', 'co-parent']
-}, {
-  id: 3,
-  sourceType: 'text',
-  originalName: 'bedtime_schedule_disagreement.txt',
-  createdAt: sub(new Date(), { hours: 7 }).toISOString(),
-  summary: 'Messages showing disagreement about agreed 8:30 PM bedtime on school nights.',
-  tags: ['bedtime', 'routine', 'schedule']
-}, {
-  id: 4,
-  sourceType: 'photo',
-  originalName: 'homework_completed_photo.jpg',
-  createdAt: sub(new Date(), { days: 1 }).toISOString(),
-  summary: 'Photo of completed homework and reading log signed by you.',
-  tags: ['positive', 'homework', 'reading']
-}, {
-  id: 5,
-  sourceType: 'document',
-  originalName: 'pediatrician_notes_cough.pdf',
-  createdAt: sub(new Date(), { days: 2 }).toISOString(),
-  summary: 'Doctor notes recommending consistent inhaler use and sleep schedule.',
-  tags: ['medical', 'doctor', 'medication']
-}, {
-  id: 6,
-  sourceType: 'email',
-  originalName: 'teacher_tardy_report.eml',
-  createdAt: sub(new Date(), { days: 3 }).toISOString(),
-  summary: 'Email from teacher documenting repeated tardies on co-parent days.',
-  tags: ['school', 'tardy', 'teacher']
-}, {
-  id: 7,
-  sourceType: 'email',
-  originalName: 'court_hearing_confirmation.eml',
-  createdAt: sub(new Date(), { days: 5 }).toISOString(),
-  summary: 'Court clerk confirmation of upcoming temporary custody hearing.',
-  tags: ['court', 'hearing', 'legal']
-}, {
-  id: 8,
-  sourceType: 'text',
-  originalName: 'missed_medication_note.txt',
-  createdAt: sub(new Date(), { days: 7 }).toISOString(),
-  summary: 'Note written immediately after child reported missing evening medication.',
-  tags: ['medical', 'medication', 'incident']
-}]
+type EvidenceRow = Tables<'evidence'>
 
-export default eventHandler(async () => {
-  return evidenceItems
+function mapEvidenceRowToItem(row: EvidenceRow): EvidenceItem {
+  const rawType = row.source_type
+  const sourceType: EvidenceItem['sourceType'] =
+    rawType === 'recording' || rawType === 'other'
+      ? 'document'
+      : (rawType as EvidenceItem['sourceType'])
+
+  // Generate a meaningful title from available data
+  let originalName = row.original_filename || row.storage_path
+  
+  if (!originalName && row.summary) {
+    // Extract a concise title from the summary (first sentence or ~60 chars)
+    const summaryText = row.summary.trim()
+    const firstSentence = summaryText.split(/[.!?]/)[0]
+    originalName = firstSentence.length > 60 
+      ? firstSentence.substring(0, 60) + '...'
+      : firstSentence
+  }
+  
+  if (!originalName) {
+    // Fallback based on source type
+    const typeLabel = {
+      email: 'Email communication',
+      text: 'Text message',
+      photo: 'Photo evidence',
+      document: 'Document'
+    }[sourceType] || 'Evidence item'
+    originalName = typeLabel
+  }
+
+  return {
+    id: row.id,
+    sourceType,
+    originalName,
+    createdAt: row.created_at,
+    summary: row.summary || '',
+    tags: row.tags || []
+  }
+}
+
+export default eventHandler(async (event) => {
+  const supabase = await serverSupabaseServiceRole(event)
+
+  // Resolve the authenticated user from the Supabase access token (Authorization header)
+  // and fall back to cookie-based auth via serverSupabaseUser.
+  let userId: string | null = null
+
+  const authHeader = getHeader(event, 'authorization') || getHeader(event, 'Authorization')
+  const bearerPrefix = 'Bearer '
+  const token = authHeader?.startsWith(bearerPrefix)
+    ? authHeader.slice(bearerPrefix.length).trim()
+    : undefined
+
+  if (token) {
+    const { data: userResult, error: userError } = await supabase.auth.getUser(token)
+
+    if (userError) {
+      // eslint-disable-next-line no-console
+      console.error('Supabase auth.getUser error (evidence):', userError)
+    } else {
+      userId = userResult.user?.id ?? null
+    }
+  }
+
+  if (!userId) {
+    const authUser = await serverSupabaseUser(event)
+    userId = authUser?.id ?? null
+  }
+
+  if (!userId) {
+    throw createError({
+      statusCode: 401,
+      statusMessage: 'User is not authenticated. Please sign in through Supabase and include the session token in the request.'
+    })
+  }
+
+  const { data, error } = await supabase
+    .from('evidence')
+    .select('id, source_type, original_filename, storage_path, summary, tags, created_at')
+    .eq('user_id', userId)
+    .order('created_at', { ascending: false })
+
+  if (error) {
+    // eslint-disable-next-line no-console
+    console.error('Supabase select evidence error:', error)
+    throw createError({
+      statusCode: 500,
+      statusMessage: 'Failed to load evidence.'
+    })
+  }
+
+  const rows = (data ?? []) as EvidenceRow[]
+  return rows.map(mapEvidenceRowToItem)
 })
 
 

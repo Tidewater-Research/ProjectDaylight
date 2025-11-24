@@ -1,9 +1,50 @@
 <script setup lang="ts">
 import type { EvidenceItem } from '~/types'
 
-const { data, status } = await useFetch<EvidenceItem[]>('/api/evidence', {
-  default: () => [],
-  lazy: true
+// Use the same authentication pattern as capture.vue
+const supabase = useSupabaseClient()
+const session = useSupabaseSession()
+
+// Initialize reactive data
+const data = ref<EvidenceItem[]>([])
+const status = ref<'idle' | 'pending' | 'success' | 'error'>('idle')
+const error = ref<any>(null)
+
+// Function to fetch evidence with proper authentication
+async function fetchEvidence() {
+  status.value = 'pending'
+  error.value = null
+  
+  try {
+    // Get the current access token
+    const accessToken = session.value?.access_token || 
+      (await supabase.auth.getSession()).data.session?.access_token
+
+    // Fetch with authentication header
+    const result = await $fetch<EvidenceItem[]>('/api/evidence', {
+      headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : {}
+    })
+    
+    data.value = result || []
+    status.value = 'success'
+  } catch (e: any) {
+    console.error('[Evidence] Failed to fetch:', e)
+    error.value = e
+    status.value = 'error'
+    data.value = []
+  }
+}
+
+// Fetch on mount and when session changes
+onMounted(() => {
+  fetchEvidence()
+})
+
+// Watch for session changes and refetch
+watch(session, (newSession) => {
+  if (newSession?.access_token) {
+    fetchEvidence()
+  }
 })
 
 const q = ref('')
@@ -47,6 +88,21 @@ const filteredEvidence = computed(() => {
   })
 })
 
+if (process.client) {
+  watchEffect(() => {
+    // eslint-disable-next-line no-console
+    console.log(
+      '[Evidence] /api/evidence result:',
+      {
+        status: status.value,
+        error: error.value,
+        count: (data.value || []).length,
+        items: data.value
+      }
+    )
+  })
+}
+
 function formatDate(value: string) {
   return new Date(value).toLocaleString(undefined, {
     month: 'short',
@@ -58,7 +114,7 @@ function formatDate(value: string) {
 
 function sourceLabel(type: EvidenceItem['sourceType']) {
   return {
-    text: 'Text / note',
+    text: 'Text',
     email: 'Email',
     photo: 'Photo',
     document: 'Document'
@@ -99,7 +155,7 @@ function sourceLabel(type: EvidenceItem['sourceType']) {
     <template #body>
       <div class="space-y-4">
         <p class="text-sm text-muted">
-          Central library of dummy evidence items fetched from
+          Central library of your uploaded evidence and AI-suggested records from
           <code class="px-1 rounded bg-subtle text-xs text-muted border border-default">/api/evidence</code>.
         </p>
 
@@ -115,42 +171,49 @@ function sourceLabel(type: EvidenceItem['sourceType']) {
           <UCard
             v-for="item in filteredEvidence"
             :key="item.id"
-            :ui="{ body: 'flex flex-col gap-2' }"
           >
-            <div class="flex items-center justify-between gap-2">
-              <div class="flex items-center gap-2">
-                <UBadge
-                  color="neutral"
-                  variant="subtle"
-                  class="capitalize"
-                >
-                  {{ sourceLabel(item.sourceType) }}
-                </UBadge>
+            <div class="flex items-start justify-between gap-3">
+              <div class="flex-1 min-w-0">
+                <div class="flex items-center gap-2 mb-1">
+                  <UBadge
+                    color="neutral"
+                    variant="subtle"
+                  >
+                    {{ sourceLabel(item.sourceType) }}
+                  </UBadge>
+                  <p class="text-xs text-muted">
+                    {{ formatDate(item.createdAt) }}
+                  </p>
+                </div>
 
-                <p class="font-medium text-highlighted truncate max-w-[12rem] sm:max-w-xs">
+                <h3 class="font-medium mb-2">
                   {{ item.originalName }}
+                </h3>
+
+                <p class="text-sm text-muted line-clamp-2 mb-3">
+                  {{ item.summary }}
                 </p>
+
+                <div v-if="item.tags.length" class="flex flex-wrap gap-1">
+                  <UBadge
+                    v-for="tag in item.tags.slice(0, 4)"
+                    :key="tag"
+                    color="neutral"
+                    variant="outline"
+                    size="xs"
+                  >
+                    {{ tag }}
+                  </UBadge>
+                  <UBadge
+                    v-if="item.tags.length > 4"
+                    color="neutral"
+                    variant="outline"
+                    size="xs"
+                  >
+                    +{{ item.tags.length - 4 }}
+                  </UBadge>
+                </div>
               </div>
-
-              <p class="text-xs text-muted">
-                {{ formatDate(item.createdAt) }}
-              </p>
-            </div>
-
-            <p class="text-sm text-muted line-clamp-3">
-              {{ item.summary }}
-            </p>
-
-            <div class="flex flex-wrap gap-1 mt-1">
-              <UBadge
-                v-for="tag in item.tags"
-                :key="tag"
-                color="neutral"
-                variant="outline"
-                class="text-xs"
-              >
-                {{ tag }}
-              </UBadge>
             </div>
           </UCard>
         </div>

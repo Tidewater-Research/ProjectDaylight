@@ -118,30 +118,6 @@ const links = [[{
   target: '_blank'
 }]] satisfies NavigationMenuItem[][]
 
-if (process.dev) {
-  const rootLinks = links[0] ?? []
-
-  if (!rootLinks.some(item => item.to === '/dev-db-test')) {
-    const templateIndex = rootLinks.findIndex(item => item.label === 'Template pages')
-
-    const devLink = {
-      label: 'DB Test',
-      to: '/dev-db-test',
-      icon: 'i-lucide-database',
-      badge: 'DEV',
-      onSelect: () => {
-        open.value = false
-      }
-    } as any
-
-    if (templateIndex !== -1) {
-      rootLinks.splice(templateIndex, 0, devLink)
-    } else {
-      rootLinks.push(devLink)
-    }
-  }
-}
-
 const groups = computed(() => [{
   id: 'links',
   label: 'Go to',

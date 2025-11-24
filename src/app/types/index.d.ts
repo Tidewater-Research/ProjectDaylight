@@ -75,7 +75,7 @@ export interface TimelineEvent {
 export type EvidenceSourceType = 'text' | 'email' | 'photo' | 'document'
 
 export interface EvidenceItem {
-  id: number
+  id: string
   sourceType: EvidenceSourceType
   originalName: string
   createdAt: string

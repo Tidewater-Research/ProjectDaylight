@@ -24,14 +24,6 @@ type JwtUser = {
   }
 }
 
-type UserProfileRow = {
-  full_name: string | null
-  email: string | null
-}
-
-const profile = ref<UserProfileRow | null>(null)
-const loadingProfile = ref(false)
-
 const colors = ['red', 'orange', 'amber', 'yellow', 'lime', 'green', 'emerald', 'teal', 'cyan', 'sky', 'blue', 'indigo', 'violet', 'purple', 'fuchsia', 'pink', 'rose']
 const neutrals = ['slate', 'gray', 'zinc', 'neutral', 'stone']
 
@@ -39,14 +31,13 @@ const user = computed(() => {
   const jwtUser = supabaseUser.value as JwtUser | null
 
   const displayName =
-    profile.value?.full_name ||
     jwtUser?.user_metadata?.preferred_name ||
     jwtUser?.user_metadata?.full_name ||
     jwtUser?.user_metadata?.name ||
     jwtUser?.email ||
     'Account'
 
-  const email = profile.value?.email || jwtUser?.email || ''
+  const email = jwtUser?.email || ''
 
   const avatarSrc =
     jwtUser?.user_metadata?.avatar_url ||
@@ -67,38 +58,6 @@ async function handleLogout() {
   await supabase.auth.signOut()
   await router.push('/auth/login')
 }
-
-watch(
-  supabaseUser,
-  async (jwt) => {
-    const typed = jwt as JwtUser | null
-
-    if (!typed) {
-      profile.value = null
-      return
-    }
-
-    loadingProfile.value = true
-
-    try {
-      const { data, error } = await supabase
-        .from('profiles')
-        .select('full_name,email')
-        .single<UserProfileRow>()
-
-      if (!error && data) {
-        profile.value = data
-      } else {
-        profile.value = null
-      }
-    } catch {
-      profile.value = null
-    } finally {
-      loadingProfile.value = false
-    }
-  },
-  { immediate: true }
-)
 
 const items = computed<DropdownMenuItem[][]>(() => ([[{
   type: 'label',
