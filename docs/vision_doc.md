@@ -379,15 +379,16 @@ Chaos → Capture → Structure → Insight → Output
 ### Next 3 Months: Core MVP
 - **Month 1:** Capture + Timeline
   - Voice capture with transcription
-  - Screenshot OCR and parsing
+  - Screenshot import + storage in Supabase
+  - Screenshot OCR and parsing into structured evidence
   - Basic chronological timeline
   - Simple PDF export
   
 - **Month 2:** Intelligence Layer
-  - AI event extraction
-  - Pattern recognition
+  - AI event extraction from voice notes
+  - Pattern recognition on real user data
   - Basic contradiction detection
-  - Evidence linking
+  - Evidence linking (events ↔ evidence ↔ communications)
   
 - **Month 3:** Market Entry
   - Payment processing
@@ -434,23 +435,14 @@ The focus remains on achieving sustainable revenue through the core evidence man
 
 ## Immediate Next Steps
 
-### Week 1
-- [ ] Build basic capture interface
-- [ ] Implement voice transcription
-- [ ] Create timeline view
-- [ ] Deploy to TestFlight
+### Now
+- [ ] Ship a reliable screenshot/photo → Supabase storage → Evidence flow
+- [ ] Make OCR’d text from screenshots clearly visible and searchable in Evidence
+- [ ] Tighten the Export center around real data (timeline + evidence)
 
-### Week 2-4
-- [ ] Add screenshot OCR
-- [ ] Build PDF export
-- [ ] Get 10 beta testers
-- [ ] Iterate based on feedback
-
-### Month 2
-- [ ] Launch AI interpreter
-- [ ] Add payment processing
-- [ ] Create landing page
-- [ ] First paying customers
+### Next
+- [ ] Add a simple AI interpreter surface (chat-style UI) on top of stored timeline + evidence
+- [ ] Start limited testing with a small group of real users (3–10) and refine flows
 
 ---
 

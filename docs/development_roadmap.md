@@ -78,7 +78,7 @@ This roadmap outlines the remaining development work for Project Daylight MVP, o
 - [ ] **Implement screenshot/photo capture**
   - Direct camera capture interface
   - [x] Gallery upload functionality
-  - [x] Store images in Supabase storage
+  - [ ] Store images in Supabase storage
   - [x] Basic OCR integration (OpenAI vision or similar)
   - [x] Extract text and save as evidence
 
@@ -328,20 +328,27 @@ After successful launch and initial revenue:
 
 ## Next Immediate Steps
 
-### Priority 1: Connect AI Chat 🎯
-1. **Natural Language Interface** - Enable chat functionality
+### Priority 1: Screenshot & Photo Storage 🎯
+1. **End-to-end screenshot/photo flow**
+   - Make it one-click simple to take or pick a screenshot/photo and store it in Supabase
+   - Ensure uploaded images are visible and manageable in the Evidence view
+   - Wire captured photos into the same `evidence` records used by exports and the timeline
+
+### Priority 2: Connect AI Chat
+2. **Natural Language Interface** - Enable chat functionality
    - Integrate LLM API (OpenAI/Anthropic)
    - Query against timeline/evidence data
    - Add citation support
-   
-### Priority 2: Complete Photo Capture
-2. **OCR Integration** - Complete photo capture workflow
-   - Integrate Google Vision API or Tesseract
-   - Extract text from uploaded images
-   - Link extracted text to evidence records
+   - Save conversation history for later review
 
-### Priority 3: PDF Export Enhancement (Optional)
-3. **PDF Generation** - Convert markdown to PDF format
+### Priority 3: Complete Photo Capture & OCR
+3. **Photo capture & OCR polish**
+   - Add/direct camera capture UX (where supported)
+   - Smooth the Image → Communications Evidence workflow
+   - Make sure OCR’d text is clearly linked to evidence records
+
+### Priority 4: PDF Export Enhancement (Optional)
+4. **PDF Generation** - Convert markdown to PDF format
    - Use Puppeteer or jsPDF
    - Professional formatting
    - Court-ready output
