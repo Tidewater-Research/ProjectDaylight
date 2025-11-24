@@ -35,9 +35,10 @@ const links = [[{
     open.value = false
   }
 }, {
-  label: 'Interpreter',
+  label: 'Chat',
   icon: 'i-lucide-message-circle',
-  to: '/interpreter',
+  to: '/chat',
+  badge: 'Coming Soon',
   onSelect: () => {
     open.value = false
   }

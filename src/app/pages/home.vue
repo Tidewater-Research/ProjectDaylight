@@ -5,6 +5,9 @@ interface HomeSummary {
   todayEvents: number
   incidentsThisWeek: number
   positiveThisWeek: number
+  totalEvents: number
+  totalEvidence: number
+  totalCommunications: number
   nextCourtDate?: string
   lastCaptureAt?: string
 }
@@ -14,18 +17,47 @@ interface HomeResponse {
   recentEvents: TimelineEvent[]
 }
 
-const { data, status } = await useFetch<HomeResponse>('/api/home', {
-  default: () => ({
-    summary: {
-      todayEvents: 0,
-      incidentsThisWeek: 0,
-      positiveThisWeek: 0,
-      nextCourtDate: undefined,
-      lastCaptureAt: undefined
-    },
-    recentEvents: []
-  }),
-  lazy: true
+// Use the same authenticated fetch pattern as timeline and evidence pages
+const supabase = useSupabaseClient()
+const session = useSupabaseSession()
+
+const data = ref<HomeResponse | null>(null)
+const status = ref<'idle' | 'pending' | 'success' | 'error'>('idle')
+const error = ref<any>(null)
+
+async function fetchHome() {
+  status.value = 'pending'
+  error.value = null
+
+  try {
+    // Get the current access token
+    const accessToken =
+      session.value?.access_token ||
+      (await supabase.auth.getSession()).data.session?.access_token
+
+    const result = await $fetch<HomeResponse>('/api/home', {
+      headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : {}
+    })
+
+    data.value = result || null
+    status.value = 'success'
+  } catch (e: any) {
+    // eslint-disable-next-line no-console
+    console.error('[Home] Failed to fetch:', e)
+    error.value = e
+    status.value = 'error'
+    data.value = null
+  }
+}
+
+onMounted(() => {
+  fetchHome()
+})
+
+watch(session, (newSession) => {
+  if (newSession?.access_token) {
+    fetchHome()
+  }
 })
 
 const router = useRouter()
@@ -120,7 +152,7 @@ function onQuickCapture () {
                 incidents
               </p>
               <p class="text-xs text-muted">
-                Based on your dummy timeline data.
+                Based on your captured events in the last 7 days.
               </p>
             </div>
 
@@ -142,19 +174,19 @@ function onQuickCapture () {
           <UCard>
             <template #header>
               <p class="font-medium text-highlighted">
-                Today’s summary (dummy)
+                Your data so far
               </p>
             </template>
 
             <ul class="space-y-2 text-sm text-muted">
               <li>
-                • You have {{ data?.summary.todayEvents }} documented event(s) today.
+                • You’ve captured {{ data?.summary.totalEvents }} event(s) in your timeline.
               </li>
               <li>
-                • Incidents and positives for this week are pre‑filled as static demo data.
+                • You’ve uploaded {{ data?.summary.totalEvidence }} evidence item(s).
               </li>
               <li>
-                • Replace this card later with real AI‑generated summaries.
+                • You’ve logged {{ data?.summary.totalCommunications }} communication(s).
               </li>
             </ul>
           </UCard>
@@ -180,8 +212,8 @@ function onQuickCapture () {
                 <NuxtLink to="/evidence" class="underline text-primary">Evidence</NuxtLink>.
               </p>
               <p>
-                • Ask natural language questions from the
-                <NuxtLink to="/interpreter" class="underline text-primary">Interpreter</NuxtLink>.
+                • Chat with an AI about your case (coming soon) on the
+                <NuxtLink to="/chat" class="underline text-primary">Chat</NuxtLink> page.
               </p>
               <p>
                 • Generate packets in the

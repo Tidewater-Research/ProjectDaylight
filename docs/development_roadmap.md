@@ -6,12 +6,12 @@
 
 ## Progress Summary
 
-**Overall Status:** ~40% Complete
+**Overall Status:** ~45% Complete
 
 - ✅ **Milestone 0:** Database Foundation - COMPLETE
 - ✅ **Milestone 1:** Real Data Capture & Storage - MOSTLY COMPLETE (OCR pending)
-- ⏳ **Milestone 2:** Evidence Management & Export - IN PROGRESS (PDF generation needed)
-- ⏳ **Milestone 3:** AI Intelligence Layer - PARTIALLY COMPLETE (interpreter needs real integration)
+- ✅ **Milestone 2:** Evidence Management & Export - COMPLETE (Markdown export working)
+- ⏳ **Milestone 3:** AI Intelligence Layer - NOT STARTED (Chat page placeholder created)
 - ❌ **Milestone 4:** Landing Page & Polish - NOT STARTED
 - ❌ **Milestone 5:** Launch Preparation - NOT STARTED
 
@@ -22,13 +22,15 @@
 - Event storage and timeline display
 - Evidence file upload to Supabase storage
 - Evidence management UI
-- Export templates (UI only, PDF generation pending)
+- Working markdown export with real data
+- Home dashboard with real stats
+- Complete navigation structure
 
 **Critical Path Items:**
 1. ~~Voice capture → database~~ ✅
-2. OCR integration for photos
-3. PDF generation for exports
-4. Natural language interpreter integration
+2. ~~Export generation with real data~~ ✅
+3. OCR integration for photos
+4. Natural language interpreter integration (Chat)
 
 ---
 
@@ -95,7 +97,7 @@ This roadmap outlines the remaining development work for Project Daylight MVP, o
 
 ---
 
-## Milestone 2: Evidence Management & Export ⏳ IN PROGRESS
+## Milestone 2: Evidence Management & Export ✅ COMPLETE
 *"Turn chaos into court-ready documentation"*
 
 ### Evidence Repository
@@ -106,33 +108,35 @@ This roadmap outlines the remaining development work for Project Daylight MVP, o
   - Tagging and categorization
   - Evidence metadata display
 
-- [ ] **Email forwarding integration**
+- [ ] **Email forwarding integration** (Future enhancement)
   - Set up email ingestion endpoint
   - Parse emails and attachments
   - Auto-extract relevant information
   - Add to timeline automatically
 
 ### Export Functionality
-- [ ] **PDF generation (Priority)**
-  - Chronological timeline PDF
+- [x] **Markdown export with real data**
+  - Chronological timeline export
   - Include linked evidence
+  - Multiple focus options (full/incidents/positive)
+  - Configurable sections
+  - Copy to clipboard
+  - Rendered preview
+
+- [ ] **PDF generation** (Future enhancement)
+  - Convert markdown to PDF
   - Court-appropriate formatting
   - Professional headers/footers
   - Page numbers and dates
 
-- [x] **Basic export templates**
-  - Last 30 days report
-  - Full timeline export
-  - Incident-only report
-  - Positive parenting summary
-
 ---
 
-## Milestone 3: AI Intelligence Layer ⏳ PARTIALLY COMPLETE
+## Milestone 3: AI Intelligence Layer ⏳ NOT STARTED
 *"Add the smart features that differentiate us"*
 
 ### Natural Language Interpreter
-- [ ] **Connect interpreter to real data**
+- [ ] **Build chat interface with real data**
+  - Chat page created (placeholder)
   - Integrate with OpenAI/Anthropic API
   - Query against actual timeline/evidence
   - Return citations with responses
@@ -275,12 +279,12 @@ Each milestone should meet these criteria before moving forward:
 - ✅ Voice note → saved event in timeline
 - ⏳ Photo upload → extracted text in evidence (OCR not implemented yet)
 
-### Milestone 2 Success  ⏳
-- ⏳ Generate real PDF from actual data (template exists, PDF generation pending)
+### Milestone 2 Success ✅
+- ✅ Generate real markdown from actual data
 - ✅ Search and find specific evidence
 
 ### Milestone 3 Success ⏳
-- ⏳ Ask "What happened yesterday?" → get real answer (UI exists, integration pending)
+- ❌ Ask "What happened yesterday?" → get real answer (placeholder exists, integration pending)
 - ❌ System identifies a pattern in actual data (not implemented)
 
 ### Milestone 4 Success ❌
@@ -321,27 +325,29 @@ After successful launch and initial revenue:
 
 ## Next Immediate Steps
 
-### Priority 1: Complete Milestone 2 🎯
-1. **PDF Generation** - Critical for users to export court-ready documents
-   - Implement chronological timeline PDF
-   - Include linked evidence
-   - Professional formatting
+### Priority 1: Connect AI Chat 🎯
+1. **Natural Language Interface** - Enable chat functionality
+   - Integrate LLM API (OpenAI/Anthropic)
+   - Query against timeline/evidence data
+   - Add citation support
    
+### Priority 2: Complete Photo Capture
 2. **OCR Integration** - Complete photo capture workflow
    - Integrate Google Vision API or Tesseract
    - Extract text from uploaded images
    - Link extracted text to evidence records
 
-### Priority 2: Connect AI Interpreter
-3. **Natural Language Queries** - Enable interpreter functionality
-   - Connect to actual timeline/evidence data
-   - Implement query templates
-   - Add citation support
+### Priority 3: PDF Export Enhancement (Optional)
+3. **PDF Generation** - Convert markdown to PDF format
+   - Use Puppeteer or jsPDF
+   - Professional formatting
+   - Court-ready output
    
 ### Quick Wins for Momentum
 - ✅ ~~Get one complete flow working: Voice → Event → Timeline~~ DONE
-- ⏳ Complete flow: Voice → Event → Timeline → **PDF export**
-- Deploy to staging for testing
+- ✅ ~~Complete flow: Voice → Event → Timeline → Markdown export~~ DONE
+- ⏳ Build chat integration for natural language queries
+- ⏳ Deploy to staging for testing
 - Recruit 3-5 alpha testers
 
 ---
