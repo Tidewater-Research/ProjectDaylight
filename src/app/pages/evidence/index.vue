@@ -191,54 +191,63 @@ function sourceLabel(type: EvidenceItem['sourceType']) {
           v-else
           class="grid gap-3 md:grid-cols-2 xl:grid-cols-3"
         >
-          <UCard
+          <NuxtLink
             v-for="item in filteredEvidence"
             :key="item.id"
+            :to="`/evidence/${item.id}`"
+            class="block"
           >
-            <div class="flex items-start justify-between gap-3">
-              <div class="flex-1 min-w-0">
-                <div class="flex items-center gap-2 mb-1">
-                  <UBadge
-                    color="neutral"
-                    variant="subtle"
-                  >
-                    {{ sourceLabel(item.sourceType) }}
-                  </UBadge>
-                  <p class="text-xs text-muted">
-                    {{ formatDate(item.createdAt) }}
+            <UCard
+              :ui="{ 
+                base: 'hover:bg-muted/5 transition-colors cursor-pointer h-full'
+              }"
+            >
+              <div class="flex items-start justify-between gap-3">
+                <div class="flex-1 min-w-0">
+                  <div class="flex items-center gap-2 mb-1">
+                    <UBadge
+                      color="neutral"
+                      variant="subtle"
+                    >
+                      {{ sourceLabel(item.sourceType) }}
+                    </UBadge>
+                    <p class="text-xs text-muted">
+                      {{ formatDate(item.createdAt) }}
+                    </p>
+                  </div>
+
+                  <h3 class="font-medium mb-2">
+                    {{ item.originalName }}
+                  </h3>
+
+                  <p class="text-sm text-muted line-clamp-2 mb-3">
+                    {{ item.summary }}
                   </p>
+
+                  <div v-if="item.tags.length" class="flex flex-wrap gap-1">
+                    <UBadge
+                      v-for="tag in item.tags.slice(0, 4)"
+                      :key="tag"
+                      color="neutral"
+                      variant="outline"
+                      size="xs"
+                    >
+                      {{ tag }}
+                    </UBadge>
+                    <UBadge
+                      v-if="item.tags.length > 4"
+                      color="neutral"
+                      variant="outline"
+                      size="xs"
+                    >
+                      +{{ item.tags.length - 4 }}
+                    </UBadge>
+                  </div>
                 </div>
-
-                <h3 class="font-medium mb-2">
-                  {{ item.originalName }}
-                </h3>
-
-                <p class="text-sm text-muted line-clamp-2 mb-3">
-                  {{ item.summary }}
-                </p>
-
-                <div v-if="item.tags.length" class="flex flex-wrap gap-1">
-                  <UBadge
-                    v-for="tag in item.tags.slice(0, 4)"
-                    :key="tag"
-                    color="neutral"
-                    variant="outline"
-                    size="xs"
-                  >
-                    {{ tag }}
-                  </UBadge>
-                  <UBadge
-                    v-if="item.tags.length > 4"
-                    color="neutral"
-                    variant="outline"
-                    size="xs"
-                  >
-                    +{{ item.tags.length - 4 }}
-                  </UBadge>
-                </div>
+                <UIcon name="i-lucide-chevron-right" class="size-4 text-muted flex-shrink-0" />
               </div>
-            </div>
-          </UCard>
+            </UCard>
+          </NuxtLink>
         </div>
 
         <UCard

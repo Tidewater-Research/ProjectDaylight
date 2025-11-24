@@ -6,6 +6,25 @@ const supabase = useSupabaseClient()
 const session = useSupabaseSession()
 const toast = useToast()
 
+interface CaseRow {
+  id: string
+  title: string
+  case_number: string | null
+  jurisdiction_state: string | null
+  jurisdiction_county: string | null
+  court_name: string | null
+  goals_summary: string | null
+  children_summary: string | null
+  parenting_schedule: string | null
+  next_court_date: string | null
+  risk_flags: string[] | null
+  updated_at: string
+}
+
+interface CaseResponse {
+  case: CaseRow | null
+}
+
 // Data from API
 const timeline = ref<TimelineEvent[]>([])
 const evidence = ref<EvidenceItem[]>([])
@@ -14,6 +33,9 @@ const timelineStatus = ref<'idle' | 'pending' | 'success' | 'error'>('idle')
 const evidenceStatus = ref<'idle' | 'pending' | 'success' | 'error'>('idle')
 const timelineError = ref<any>(null)
 const evidenceError = ref<any>(null)
+const caseStatus = ref<'idle' | 'pending' | 'success' | 'error'>('idle')
+const caseError = ref<any>(null)
+const currentCase = ref<CaseRow | null>(null)
 
 // Export form state
 type ExportFocus = 'full-timeline' | 'incidents-only' | 'positive-parenting'
@@ -21,6 +43,7 @@ type ExportFocus = 'full-timeline' | 'incidents-only' | 'positive-parenting'
 const exportFocus = ref<ExportFocus>('full-timeline')
 const includeEvidenceIndex = ref(true)
 const includeOverview = ref(true)
+const includeAISummary = ref(true)
 
 const caseTitle = ref('')
 const courtName = ref('')
@@ -32,10 +55,21 @@ const generating = ref(false)
 const copied = ref(false)
 const showRendered = ref(false)
 const pdfGenerating = ref(false)
+const viewMode = ref<'configure' | 'preview'>('configure')
+const lastGeneratedAt = ref<string | null>(null)
+const aiSummary = ref<string | null>(null)
+const summaryGenerating = ref(false)
 
 const isLoadingData = computed(
-  () => timelineStatus.value === 'pending' || evidenceStatus.value === 'pending'
+  () =>
+    timelineStatus.value === 'pending' ||
+    evidenceStatus.value === 'pending' ||
+    caseStatus.value === 'pending'
 )
+
+const exportFocusLabel = computed(() => {
+  return exportFocusOptions.find(option => option.value === exportFocus.value)?.label || ''
+})
 
 const exportFocusOptions: { label: string; value: ExportFocus; description: string }[] = [{
   label: 'Full timeline',
@@ -51,14 +85,22 @@ const exportFocusOptions: { label: string; value: ExportFocus; description: stri
   description: 'Highlight your stability, routines, and positive involvement.'
 }]
 
+async function getAccessToken() {
+  const current = session.value
+  if (current?.access_token) {
+    return current.access_token
+  }
+
+  const { data } = await supabase.auth.getSession()
+  return data.session?.access_token
+}
+
 async function fetchTimeline() {
   timelineStatus.value = 'pending'
   timelineError.value = null
 
   try {
-    const accessToken =
-      session.value?.access_token ||
-      (await supabase.auth.getSession()).data.session?.access_token
+    const accessToken = await getAccessToken()
 
     const result = await $fetch<TimelineEvent[]>('/api/timeline', {
       headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : {}
@@ -80,9 +122,7 @@ async function fetchEvidence() {
   evidenceError.value = null
 
   try {
-    const accessToken =
-      session.value?.access_token ||
-      (await supabase.auth.getSession()).data.session?.access_token
+    const accessToken = await getAccessToken()
 
     const result = await $fetch<EvidenceItem[]>('/api/evidence', {
       headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : {}
@@ -99,10 +139,99 @@ async function fetchEvidence() {
   }
 }
 
+async function fetchCase() {
+  caseStatus.value = 'pending'
+  caseError.value = null
+
+  try {
+    const accessToken = await getAccessToken()
+
+    const result = await $fetch<CaseResponse>('/api/case', {
+      headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : {}
+    })
+
+    const row = result.case
+    currentCase.value = row ?? null
+
+    if (row) {
+      if (!caseTitle.value.trim()) {
+        caseTitle.value = row.title ?? ''
+      }
+
+      if (!courtName.value.trim()) {
+        const pieces: string[] = []
+        if (row.court_name) {
+          pieces.push(row.court_name)
+        } else if (row.jurisdiction_county || row.jurisdiction_state) {
+          const locality = [row.jurisdiction_county, row.jurisdiction_state]
+            .filter(Boolean)
+            .join(', ')
+          if (locality) {
+            pieces.push(locality)
+          }
+        }
+        courtName.value = pieces.join(' - ')
+      }
+
+      if (!overviewNotes.value.trim()) {
+        const lines: string[] = []
+
+        if (row.goals_summary) {
+          lines.push(row.goals_summary.trim())
+        }
+
+        if (row.children_summary) {
+          lines.push('')
+          lines.push(`Children: ${row.children_summary.trim()}`)
+        }
+
+        if (row.parenting_schedule) {
+          lines.push('')
+          lines.push(`Current schedule: ${row.parenting_schedule.trim()}`)
+        }
+
+        if (row.next_court_date) {
+          const date = new Date(row.next_court_date)
+          if (!Number.isNaN(date.getTime())) {
+            lines.push('')
+            lines.push(
+              `Next important court date: ${date.toLocaleString(undefined, {
+                month: 'short',
+                day: 'numeric',
+                year: 'numeric',
+                hour: '2-digit',
+                minute: '2-digit'
+              })}`
+            )
+          }
+        }
+
+        if (row.risk_flags && row.risk_flags.length) {
+          lines.push('')
+          lines.push(`Key concerns: ${row.risk_flags.join(', ')}`)
+        }
+
+        if (lines.length) {
+          overviewNotes.value = lines.join('\n')
+        }
+      }
+    }
+
+    caseStatus.value = 'success'
+  } catch (e: any) {
+    // eslint-disable-next-line no-console
+    console.error('[Export] Failed to fetch case:', e)
+    caseError.value = e
+    caseStatus.value = 'error'
+    currentCase.value = null
+  }
+}
+
 async function loadData() {
   await Promise.allSettled([
     fetchTimeline(),
-    fetchEvidence()
+    fetchEvidence(),
+    fetchCase()
   ])
 }
 
@@ -156,6 +285,14 @@ function buildMarkdown() {
   const lines: string[] = []
 
   lines.push('# Custody case timeline & evidence summary', '')
+
+  // Add AI Summary if available
+  if (aiSummary.value) {
+    lines.push('## Executive Summary', '')
+    lines.push('_AI-generated analysis of key patterns and important developments:_', '')
+    lines.push(aiSummary.value, '')
+    lines.push('---', '')
+  }
 
   if (caseTitle.value.trim()) {
     lines.push(`**Case:** ${caseTitle.value.trim()}`)
@@ -249,15 +386,75 @@ function buildMarkdown() {
   return lines.join('\n')
 }
 
+async function generateAISummary() {
+  summaryGenerating.value = true
+  aiSummary.value = null
+
+  try {
+    const accessToken = await getAccessToken()
+    
+    const response = await $fetch('/api/export-summary', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${accessToken}`
+      },
+      body: {
+        timeline: timeline.value,
+        evidence: evidence.value,
+        caseInfo: currentCase.value,
+        exportFocus: exportFocus.value,
+        userPreferences: {
+          caseTitle: caseTitle.value,
+          courtName: courtName.value,
+          recipient: recipient.value,
+          overviewNotes: overviewNotes.value
+        }
+      }
+    })
+
+    if (response?.summary) {
+      aiSummary.value = response.summary
+    }
+  } catch (error) {
+    console.error('[Export] Failed to generate AI summary:', error)
+    toast.add({
+      title: 'AI Summary Generation Failed',
+      description: 'The export will be generated without the AI summary.',
+      color: 'warning'
+    })
+  } finally {
+    summaryGenerating.value = false
+  }
+}
+
 async function generateMarkdown() {
   generating.value = true
   copied.value = false
 
   try {
+    // Generate AI summary first if enabled (optional - won't block export if it fails)
+    if (includeAISummary.value) {
+      await generateAISummary()
+    } else {
+      aiSummary.value = null
+    }
+    
     markdown.value = buildMarkdown()
+    lastGeneratedAt.value = new Date().toLocaleString()
+    // After generating an export, default to the rendered view
+    showRendered.value = true
+    viewMode.value = 'preview'
   } finally {
     generating.value = false
   }
+}
+
+function startNewExport() {
+  viewMode.value = 'configure'
+  markdown.value = ''
+  copied.value = false
+  showRendered.value = false
+  aiSummary.value = null
 }
 
 async function copyToClipboard() {
@@ -554,7 +751,7 @@ async function downloadPdf() {
       title: 'PDF ready',
       description: 'Your report has been downloaded as a PDF.',
       icon: 'i-lucide-file-down',
-      color: 'success'
+      color: 'neutral'
     })
   } catch (e) {
     // eslint-disable-next-line no-console
@@ -575,241 +772,336 @@ async function downloadPdf() {
 <template>
   <UDashboardPanel id="export">
     <template #header>
-      <UDashboardNavbar title="Export center">
+      <UDashboardNavbar :title="viewMode === 'configure' ? 'New export' : 'Export review'">
         <template #leading>
           <UDashboardSidebarCollapse />
+        </template>
+
+        <template #trailing>
+          <div class="hidden sm:flex items-center gap-3 text-xs text-muted">
+            <span v-if="viewMode === 'configure'">
+              Step 1 of 2 · Configure your export
+            </span>
+            <span v-else>
+              Step 2 of 2 · Review & share
+            </span>
+          </div>
         </template>
       </UDashboardNavbar>
     </template>
 
     <template #body>
-      <div class="space-y-6">
-        <p class="text-sm text-muted">
+      <!-- Step 1: Configure export -->
+      <div v-if="viewMode === 'configure'" class="space-y-6">
+        <p class="max-w-3xl text-sm text-muted">
           Generate a plain‑text, court‑ready markdown summary you can paste into an email, document, or portal.
-          This pulls from your existing
+          We'll pull in details from your
           <code class="px-1 rounded bg-subtle text-xs text-muted border border-default">/api/timeline</code>
           and
           <code class="px-1 rounded bg-subtle text-xs text-muted border border-default">/api/evidence</code>
           data.
         </p>
 
-        <div class="grid gap-6 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,1.3fr)]">
-          <!-- Configuration -->
-          <UCard>
-            <div class="space-y-4">
-              <div class="space-y-2">
+        <UCard class="max-w-3xl">
+          <div class="space-y-6">
+            <!-- Case details -->
+            <div class="space-y-3">
+              <div class="flex flex-wrap items-baseline justify-between gap-2">
                 <p class="text-xs font-medium uppercase tracking-wide text-muted">
                   Case details
                 </p>
-
-                <div class="space-y-3">
-                  <div class="space-y-1">
-                    <p class="text-xs font-medium text-highlighted">
-                      Case title
-                    </p>
-                    <UInput
-                      v-model="caseTitle"
-                      placeholder="Johnson v. Johnson – custody"
-                      class="w-full"
-                    />
-                    <p class="text-[11px] text-muted">
-                      Optional. For example: Johnson v. Johnson – custody.
-                    </p>
-                  </div>
-
-                  <div class="space-y-1">
-                    <p class="text-xs font-medium text-highlighted">
-                      Court
-                    </p>
-                    <UInput
-                      v-model="courtName"
-                      placeholder="Richmond Circuit Court, VA"
-                      class="w-full"
-                    />
-                    <p class="text-[11px] text-muted">
-                      Optional. For example: Richmond Circuit Court, VA.
-                    </p>
-                  </div>
-
-                  <div class="space-y-1">
-                    <p class="text-xs font-medium text-highlighted">
-                      Prepared for
-                    </p>
-                    <UInput
-                      v-model="recipient"
-                      placeholder="Attorney Smith / GAL / Court"
-                      class="w-full"
-                    />
-                    <p class="text-[11px] text-muted">
-                      Optional. Attorney, GAL, or court.
-                    </p>
-                  </div>
-                </div>
+                <p class="text-[11px] text-muted">
+                  <span v-if="currentCase">
+                    Using details from your
+                    <NuxtLink to="/case" class="underline text-primary">Case</NuxtLink>
+                    page. You can tweak them here just for this export.
+                  </span>
+                  <span v-else>
+                    Optional. Fill out your
+                    <NuxtLink to="/case" class="underline text-primary">Case</NuxtLink>
+                    page to auto‑fill these fields.
+                  </span>
+                </p>
               </div>
 
-              <div class="space-y-2">
-                <p class="text-xs font-medium uppercase tracking-wide text-muted">
-                  Focus
-                </p>
+              <div class="grid gap-4 md:grid-cols-2">
+                <div class="space-y-1">
+                  <p class="text-xs font-medium text-highlighted">
+                    Case title
+                  </p>
+                  <UInput
+                    v-model="caseTitle"
+                    placeholder="Johnson v. Johnson – custody"
+                    class="w-full"
+                  />
+                  <p class="text-[11px] text-muted">
+                    Optional. For example: Johnson v. Johnson – custody.
+                  </p>
+                </div>
 
                 <div class="space-y-1">
                   <p class="text-xs font-medium text-highlighted">
-                    What do you want to highlight?
+                    Court
                   </p>
-
-                  <USelect
-                    v-model="exportFocus"
-                    :items="exportFocusOptions"
-                    value-attribute="value"
-                    option-attribute="label"
+                  <UInput
+                    v-model="courtName"
+                    placeholder="Richmond Circuit Court, VA"
                     class="w-full"
-                    :ui="{
-                      trailingIcon: 'group-data-[state=open]:rotate-180 transition-transform duration-200'
-                    }"
                   />
-
-                  <p class="mt-1 text-xs text-muted">
-                    {{
-                      exportFocusOptions.find(option => option.value === exportFocus)?.description
-                    }}
+                  <p class="text-[11px] text-muted">
+                    Optional. For example: Richmond Circuit Court, VA.
                   </p>
                 </div>
               </div>
 
-              <div class="space-y-3">
-                <p class="text-xs font-medium uppercase tracking-wide text-muted">
-                  Sections
-                </p>
-
-                <div class="space-y-2">
-                  <USwitch
-                    v-model="includeOverview"
-                    label="Include overview section"
-                    description="Short narrative at the top explaining what the reader should understand."
-                  />
-
-                  <USwitch
-                    v-model="includeEvidenceIndex"
-                    label="Include evidence index"
-                    description="Numbered list of evidence items with summaries and tags."
-                  />
-                </div>
-              </div>
-
-              <div v-if="includeOverview" class="space-y-1">
+              <div class="space-y-1">
                 <p class="text-xs font-medium text-highlighted">
-                  Overview notes (optional)
+                  Prepared for
                 </p>
-                <UTextarea
-                  v-model="overviewNotes"
-                  placeholder="Example: This report covers the last 60 days leading up to the temporary custody hearing on..."
-                  :rows="4"
-                  autoresize
+                <UInput
+                  v-model="recipient"
+                  placeholder="Attorney Smith / GAL / Court"
                   class="w-full"
                 />
                 <p class="text-[11px] text-muted">
-                  If you leave this blank, we'll include a prompt you can fill in later.
+                  Optional. Attorney, GAL, or court.
                 </p>
               </div>
+            </div>
 
-              <div class="pt-2 flex items-center justify-between gap-2">
-                <div class="flex items-center gap-2 text-xs text-muted">
-                  <UIcon
-                    v-if="isLoadingData"
-                    name="i-lucide-loader-2"
-                    class="size-4 animate-spin"
-                  />
-                  <span v-if="isLoadingData">Loading timeline and evidence…</span>
-                  <span v-else>Data loaded from your current timeline and evidence.</span>
+          <!-- Focus -->
+          <div class="space-y-3">
+            <p class="text-xs font-medium uppercase tracking-wide text-muted">
+              Focus
+            </p>
+            <div class="space-y-1">
+              <p class="text-xs font-medium text-highlighted">
+                What do you want to highlight?
+              </p>
+
+              <USelect
+                v-model="exportFocus"
+                :items="exportFocusOptions"
+                value-attribute="value"
+                option-attribute="label"
+                  class="w-full md:w-60"
+                :ui="{
+                  trailingIcon: 'group-data-[state=open]:rotate-180 transition-transform duration-200'
+                }"
+              />
+
+              <p class="mt-1 text-xs text-muted">
+                {{ exportFocusOptions.find(option => option.value === exportFocus)?.description }}
+              </p>
+            </div>
+            
+            <!-- AI Summary option -->
+            <div class="pt-2">
+              <USwitch
+                v-model="includeAISummary"
+                label="Generate AI executive summary"
+                description="AI analyzes your timeline and evidence to highlight key patterns and important developments"
+                :ui="{ 
+                  wrapper: 'flex items-start',
+                  description: 'text-xs mt-1 text-muted' 
+                }"
+              />
+            </div>
+          </div>
+
+            <!-- Advanced options -->
+            <UCollapsible class="flex flex-col gap-2">
+              <UButton
+                color="neutral"
+                variant="ghost"
+                size="xs"
+                class="justify-between group self-start"
+                trailing-icon="i-lucide-chevron-down"
+                :ui="{
+                  trailingIcon: 'group-data-[state=open]:rotate-180 transition-transform duration-200'
+                }"
+              >
+                <span class="text-xs font-medium text-highlighted">
+                  Advanced sections & notes
+                </span>
+              </UButton>
+
+              <template #content>
+                <div class="pt-1 space-y-4">
+                  <!-- Sections -->
+                  <div class="space-y-3">
+                    <p class="text-xs font-medium uppercase tracking-wide text-muted">
+                      Sections
+                    </p>
+
+                  <div class="space-y-2">
+                    <USwitch
+                      v-model="includeOverview"
+                      label="Include overview section"
+                      description="Short narrative at the top explaining what the reader should understand."
+                    />
+
+                    <USwitch
+                      v-model="includeEvidenceIndex"
+                      label="Include evidence index"
+                      description="Numbered list of evidence items with summaries and tags."
+                    />
+                  </div>
+                  </div>
+
+                  <!-- Overview notes -->
+                  <div v-if="includeOverview" class="space-y-1">
+                    <p class="text-xs font-medium text-highlighted">
+                      Overview notes (optional)
+                    </p>
+                    <UTextarea
+                      v-model="overviewNotes"
+                      placeholder="Example: This report covers the last 60 days leading up to the temporary custody hearing on..."
+                      :rows="4"
+                      autoresize
+                      class="w-full"
+                    />
+                    <p class="text-[11px] text-muted">
+                      If you leave this blank, we'll include a prompt you can fill in later.
+                    </p>
+                  </div>
                 </div>
+              </template>
+            </UCollapsible>
+
+            <!-- Actions -->
+            <div class="pt-2 flex flex-col gap-3 border-t border-dashed border-default/60 md:flex-row md:items-center md:justify-between">
+              <div class="flex items-center gap-2 text-xs text-muted">
+                <UIcon
+                  v-if="summaryGenerating"
+                  name="i-lucide-sparkles"
+                  class="size-4 animate-pulse"
+                />
+                <UIcon
+                  v-else-if="isLoadingData"
+                  name="i-lucide-loader-2"
+                  class="size-4 animate-spin"
+                />
+                <span v-if="summaryGenerating">AI is analyzing your timeline and evidence...</span>
+                <span v-else-if="isLoadingData">Loading timeline and evidence…</span>
+                <span v-else>{{ includeAISummary ? 'Ready to generate export with AI summary.' : 'Ready to generate export.' }}</span>
+              </div>
+
+              <div class="flex items-center justify-end gap-2">
+                <UButton
+                  color="neutral"
+                  variant="ghost"
+                  size="xs"
+                  :disabled="isLoadingData"
+                  @click="loadData"
+                >
+                  Refresh data
+                </UButton>
 
                 <UButton
                   color="primary"
                   icon="i-lucide-file-text"
-                  :loading="generating"
+                  :loading="generating || summaryGenerating"
+                  :disabled="isLoadingData"
                   @click="generateMarkdown"
                 >
-                  Generate markdown
+                  <span v-if="summaryGenerating">Generating AI summary...</span>
+                  <span v-else-if="includeAISummary">Generate export with AI</span>
+                  <span v-else>Generate export</span>
                 </UButton>
               </div>
             </div>
-          </UCard>
+          </div>
+        </UCard>
+      </div>
 
-          <!-- Preview -->
-          <UCard>
-            <template #header>
-              <div class="flex items-center justify-between gap-2">
-                <div>
-                  <p class="font-medium text-highlighted">
-                    Markdown preview
-                  </p>
-                  <p class="text-xs text-muted">
-                    Copy‑paste into an email, Word/Google doc, or upload as a supporting exhibit.
-                  </p>
-                </div>
+      <!-- Step 2: Full-width preview -->
+      <div v-else class="flex flex-col gap-4 h-full">
+        <div class="flex flex-wrap items-start justify-between gap-3">
+          <div class="space-y-1">
+            <p class="text-sm font-medium text-highlighted">
+              Export ready
+            </p>
+            <p class="text-xs text-muted">
+              {{ caseTitle || 'Untitled case' }}
+              <span class="mx-1">·</span>
+              {{ exportFocusLabel }}
+              <span v-if="lastGeneratedAt" class="mx-1">·</span>
+              <span v-if="lastGeneratedAt">
+                Generated {{ lastGeneratedAt }}
+              </span>
+            </p>
+          </div>
 
-                <div class="flex items-center gap-2">
-                  <UButton
-                    color="neutral"
-                    variant="outline"
-                    size="xs"
-                    icon="i-lucide-clipboard"
-                    :disabled="!markdown"
-                    @click="copyToClipboard"
-                  >
-                    <span v-if="copied">Copied</span>
-                    <span v-else>Copy</span>
-                  </UButton>
+          <div class="flex flex-wrap items-center gap-2">
+            <USwitch
+              v-model="showRendered"
+              size="sm"
+              label="Rendered view"
+            />
 
-                  <UButton
-                    color="primary"
-                    variant="solid"
-                    size="xs"
-                    icon="i-lucide-file-down"
-                    :disabled="!markdown"
-                    :loading="pdfGenerating"
-                    @click="downloadPdf"
-                  >
-                    PDF
-                  </UButton>
-                </div>
-              </div>
+            <UButton
+              color="neutral"
+              variant="outline"
+              size="xs"
+              icon="i-lucide-clipboard"
+              :disabled="!markdown"
+              @click="copyToClipboard"
+            >
+              <span v-if="copied">Copied</span>
+              <span v-else>Copy</span>
+            </UButton>
+
+            <UButton
+              color="primary"
+              variant="soft"
+              size="xs"
+              icon="i-lucide-file-down"
+              :disabled="!markdown"
+              :loading="pdfGenerating"
+              @click="downloadPdf"
+            >
+              PDF
+            </UButton>
+
+            <UButton
+              color="primary"
+              variant="solid"
+              size="xs"
+              icon="i-lucide-plus"
+              @click="startNewExport"
+            >
+              New export
+            </UButton>
+          </div>
+        </div>
+
+        <UCard class="flex-1 min-h-[360px]">
+          <div
+            v-if="!markdown"
+            class="flex h-full items-center justify-center text-sm text-muted"
+          >
+            Generate a new export to see the full preview.
+          </div>
+
+          <div
+            v-else
+            class="h-[min(72vh,calc(100vh-260px))] overflow-y-auto rounded-md bg-subtle p-4"
+          >
+            <template v-if="!showRendered">
+              <pre class="whitespace-pre-wrap break-words font-mono text-sm leading-relaxed text-highlighted">
+{{ markdown }}</pre>
             </template>
-
-            <div v-if="!markdown" class="text-sm text-muted">
-              Click
-              <span class="font-medium text-highlighted">Generate markdown</span>
-              to see a draft export based on your current timeline and evidence.
-            </div>
-
-            <div v-else class="space-y-3">
-              <USwitch
-                v-model="showRendered"
-                label="Show rendered preview"
-                description="Toggle between raw markdown and formatted preview"
-              />
-
-              <!-- Raw markdown view -->
-              <div
-                v-if="!showRendered"
-                class="max-h-[480px] overflow-y-auto rounded-md border border-default bg-subtle p-4"
-              >
-                <pre class="whitespace-pre-wrap break-words font-mono text-sm leading-relaxed text-highlighted">{{ markdown }}</pre>
-              </div>
-
-              <!-- Rendered markdown view -->
-              <div
-                v-else
-                class="max-h-[480px] overflow-y-auto rounded-md border border-default bg-white dark:bg-gray-900 p-6"
-              >
+            <template v-else>
+              <div class="bg-white dark:bg-gray-900 rounded-md p-6">
                 <MDC
                   :value="markdown"
                   class="prose prose-sm dark:prose-invert max-w-none"
                 />
               </div>
-            </div>
-          </UCard>
-        </div>
+            </template>
+          </div>
+        </UCard>
       </div>
     </template>
   </UDashboardPanel>

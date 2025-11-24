@@ -1,0 +1,111 @@
+import { serverSupabaseServiceRole, serverSupabaseUser } from '#supabase/server'
+
+interface CaseRow {
+  id: string
+  title: string
+  case_number: string | null
+  jurisdiction_state: string | null
+  jurisdiction_county: string | null
+  court_name: string | null
+  case_type: string | null
+  stage: string | null
+  your_role: string | null
+  opposing_party_name: string | null
+  opposing_party_role: string | null
+  children_count: number | null
+  children_summary: string | null
+  parenting_schedule: string | null
+  goals_summary: string | null
+  risk_flags: string[] | null
+  notes: string | null
+  next_court_date: string | null
+  created_at: string
+  updated_at: string
+}
+
+export default eventHandler(async (event) => {
+  const supabase = await serverSupabaseServiceRole(event)
+
+  // Resolve the authenticated user from the Supabase access token (Authorization header)
+  // and fall back to cookie-based auth via serverSupabaseUser.
+  let userId: string | null = null
+
+  const authHeader = getHeader(event, 'authorization') || getHeader(event, 'Authorization')
+  const bearerPrefix = 'Bearer '
+  const token = authHeader?.startsWith(bearerPrefix)
+    ? authHeader.slice(bearerPrefix.length).trim()
+    : undefined
+
+  if (token) {
+    const { data: userResult, error: userError } = await supabase.auth.getUser(token)
+
+    if (userError) {
+      // eslint-disable-next-line no-console
+      console.error('Supabase auth.getUser error (case GET):', userError)
+    } else {
+      userId = userResult.user?.id ?? null
+    }
+  }
+
+  if (!userId) {
+    const authUser = await serverSupabaseUser(event)
+    userId = authUser?.id ?? null
+  }
+
+  if (!userId) {
+    throw createError({
+      statusCode: 401,
+      statusMessage:
+        'User is not authenticated. Please sign in through Supabase and include the session token in the request.'
+    })
+  }
+
+  const { data, error } = await supabase
+    .from('cases')
+    .select(
+      [
+        'id',
+        'title',
+        'case_number',
+        'jurisdiction_state',
+        'jurisdiction_county',
+        'court_name',
+        'case_type',
+        'stage',
+        'your_role',
+        'opposing_party_name',
+        'opposing_party_role',
+        'children_count',
+        'children_summary',
+        'parenting_schedule',
+        'goals_summary',
+        'risk_flags',
+        'notes',
+        'next_court_date',
+        'created_at',
+        'updated_at'
+      ].join(', ')
+    )
+    .eq('user_id', userId)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+
+  if (error && error.code !== 'PGRST116') {
+    // eslint-disable-next-line no-console
+    console.error('Supabase select case error:', error)
+    throw createError({
+      statusCode: 500,
+      statusMessage: 'Failed to load case details.'
+    })
+  }
+
+  const row = (data ?? null) as CaseRow | null
+
+  return {
+    case: row
+  }
+})
+
+
+

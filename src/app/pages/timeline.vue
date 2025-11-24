@@ -171,55 +171,66 @@ function formatDate(value: string) {
           v-else
           class="space-y-3"
         >
-          <UCard
+          <NuxtLink
             v-for="event in filteredEvents"
             :key="event.id"
-            :ui="{ body: 'flex flex-col gap-2' }"
+            :to="`/event/${event.id}`"
+            class="block"
           >
-            <div class="flex flex-wrap items-center justify-between gap-2">
-              <div class="flex items-center gap-2">
-                <UBadge
-                  :color="typeColors[event.type]"
-                  variant="subtle"
-                  class="capitalize"
-                >
-                  {{ event.type }}
-                </UBadge>
+            <UCard
+              :ui="{ 
+                body: 'flex flex-col gap-2',
+                base: 'hover:bg-muted/5 transition-colors cursor-pointer'
+              }"
+            >
+              <div class="flex flex-wrap items-center justify-between gap-2">
+                <div class="flex items-center gap-2">
+                  <UBadge
+                    :color="typeColors[event.type]"
+                    variant="subtle"
+                    class="capitalize"
+                  >
+                    {{ event.type }}
+                  </UBadge>
 
-                <p class="font-medium text-highlighted">
-                  {{ event.title }}
-                </p>
+                  <p class="font-medium text-highlighted">
+                    {{ event.title }}
+                  </p>
+                </div>
+
+                <div class="flex items-center gap-2">
+                  <p class="text-xs text-muted">
+                    {{ formatDate(event.timestamp) }}
+                  </p>
+                  <UIcon name="i-lucide-chevron-right" class="size-4 text-muted" />
+                </div>
               </div>
 
-              <p class="text-xs text-muted">
-                {{ formatDate(event.timestamp) }}
+              <p class="text-sm text-muted">
+                {{ event.description }}
               </p>
-            </div>
 
-            <p class="text-sm text-muted">
-              {{ event.description }}
-            </p>
+              <div class="flex flex-wrap items-center gap-2 text-xs text-muted">
+                <span v-if="event.location" class="inline-flex items-center gap-1">
+                  <UIcon name="i-lucide-map-pin" class="size-3.5" />
+                  {{ event.location }}
+                </span>
 
-            <div class="flex flex-wrap items-center gap-2 text-xs text-muted">
-              <span v-if="event.location" class="inline-flex items-center gap-1">
-                <UIcon name="i-lucide-map-pin" class="size-3.5" />
-                {{ event.location }}
-              </span>
+                <span class="inline-flex items-center gap-1">
+                  <UIcon name="i-lucide-users" class="size-3.5" />
+                  {{ event.participants.join(', ') }}
+                </span>
 
-              <span class="inline-flex items-center gap-1">
-                <UIcon name="i-lucide-users" class="size-3.5" />
-                {{ event.participants.join(', ') }}
-              </span>
-
-              <span
-                v-if="event.evidenceIds?.length"
-                class="inline-flex items-center gap-1"
-              >
-                <UIcon name="i-lucide-paperclip" class="size-3.5" />
-                {{ event.evidenceIds.length }} linked evidence item(s)
-              </span>
-            </div>
-          </UCard>
+                <span
+                  v-if="event.evidenceIds?.length"
+                  class="inline-flex items-center gap-1"
+                >
+                  <UIcon name="i-lucide-paperclip" class="size-3.5" />
+                  {{ event.evidenceIds.length }} linked evidence item(s)
+                </span>
+              </div>
+            </UCard>
+          </NuxtLink>
 
           <UCard
             v-if="!filteredEvents.length && status === 'success'"

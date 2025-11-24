@@ -4,12 +4,20 @@ import { serverSupabaseServiceRole, serverSupabaseUser } from '#supabase/server'
 
 type EvidenceRow = Tables<'evidence'>
 
+function mapSourceType(rawType: string | null): EvidenceItem['sourceType'] {
+  const normalized = rawType || 'other'
+
+  // Keep this in sync with /api/evidence/[id].ts so list and detail views
+  // present the same source type for a given database value.
+  if (normalized === 'recording' || normalized === 'other') {
+    return 'document'
+  }
+
+  return normalized as EvidenceItem['sourceType']
+}
+
 function mapEvidenceRowToItem(row: EvidenceRow): EvidenceItem {
-  const rawType = row.source_type
-  const sourceType: EvidenceItem['sourceType'] =
-    rawType === 'recording' || rawType === 'other'
-      ? 'document'
-      : (rawType as EvidenceItem['sourceType'])
+  const sourceType = mapSourceType(row.source_type)
 
   // Generate a meaningful title from available data
   let originalName = row.original_filename || row.storage_path

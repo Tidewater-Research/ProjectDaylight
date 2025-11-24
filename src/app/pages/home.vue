@@ -239,10 +239,11 @@ function onQuickCapture () {
             v-else
             class="space-y-3"
           >
-            <div
+            <NuxtLink
               v-for="event in data?.recentEvents"
               :key="event.id"
-              class="flex flex-col justify-between gap-2 border-b border-default pb-2 last:border-b-0 last:pb-0 sm:flex-row sm:items-center"
+              :to="`/event/${event.id}`"
+              class="flex flex-col justify-between gap-2 border-b border-default pb-2 last:border-b-0 last:pb-0 sm:flex-row sm:items-center hover:bg-muted/5 px-2 -mx-2 py-1 rounded-lg transition-colors cursor-pointer"
             >
               <div>
                 <p class="text-sm font-medium text-highlighted">
@@ -253,11 +254,14 @@ function onQuickCapture () {
                 </p>
               </div>
 
-              <div class="flex flex-col items-start gap-1 text-xs text-muted sm:items-end">
-                <span>{{ formatDate(event.timestamp) }}</span>
-                <span v-if="event.location">{{ event.location }}</span>
+              <div class="flex items-center gap-2">
+                <div class="flex flex-col items-start gap-1 text-xs text-muted sm:items-end">
+                  <span>{{ formatDate(event.timestamp) }}</span>
+                  <span v-if="event.location">{{ event.location }}</span>
+                </div>
+                <UIcon name="i-lucide-chevron-right" class="size-4 text-muted flex-shrink-0" />
               </div>
-            </div>
+            </NuxtLink>
 
             <p
               v-if="!data?.recentEvents.length"

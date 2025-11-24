@@ -6,14 +6,14 @@
 
 ## Progress Summary
 
-**Overall Status:** ~45% Complete
+**Overall Status:** ~50% Complete
 
 - ✅ **Milestone 0:** Database Foundation - COMPLETE
-- ✅ **Milestone 1:** Real Data Capture & Storage - MOSTLY COMPLETE (OCR pending)
-- ✅ **Milestone 2:** Evidence Management & Export - COMPLETE (Markdown export working)
-- ⏳ **Milestone 3:** AI Intelligence Layer - NOT STARTED (Chat page placeholder created)
-- ❌ **Milestone 4:** Landing Page & Polish - NOT STARTED
-- ❌ **Milestone 5:** Launch Preparation - NOT STARTED
+- ✅ **Milestone 1:** Real Data Capture & Storage - MOSTLY COMPLETE (OCR & photo-to-text live; camera capture pending)
+- ✅ **Milestone 2:** Evidence Management & Export - COMPLETE (Markdown + PDF export working)
+- ⏳ **Milestone 3:** AI Intelligence Layer - IN PROGRESS (LLM extraction & AI summaries live; chat & insights pending)
+- ⏳ **Milestone 4:** Landing Page & Polish - IN PROGRESS
+- ❌ **Milestone 5:** Launch Preparation - NOT STARTED (payments & production hardening)
 
 **Key Completed Features:**
 - Full database schema with RLS policies
@@ -22,14 +22,14 @@
 - Event storage and timeline display
 - Evidence file upload to Supabase storage
 - Evidence management UI
-- Working markdown export with real data
+- Working markdown + PDF export with real data
 - Home dashboard with real stats
 - Complete navigation structure
 
 **Critical Path Items:**
 1. ~~Voice capture → database~~ ✅
 2. ~~Export generation with real data~~ ✅
-3. OCR integration for photos
+3. ~~OCR integration for photos~~ ✅
 4. Natural language interpreter integration (Chat)
 
 ---
@@ -77,10 +77,10 @@ This roadmap outlines the remaining development work for Project Daylight MVP, o
 
 - [ ] **Implement screenshot/photo capture**
   - Direct camera capture interface
-  - Gallery upload functionality
-  - Store images in Supabase storage
-  - Basic OCR integration (Google Vision API or similar)
-  - Extract text and save as evidence
+  - [x] Gallery upload functionality
+  - [x] Store images in Supabase storage
+  - [x] Basic OCR integration (OpenAI vision or similar)
+  - [x] Extract text and save as evidence
 
 - [x] **File upload system**
   - Document upload interface
@@ -123,7 +123,7 @@ This roadmap outlines the remaining development work for Project Daylight MVP, o
   - Copy to clipboard
   - Rendered preview
 
-- [ ] **PDF generation** (Future enhancement)
+- [x] **PDF generation**
   - Convert markdown to PDF
   - Court-appropriate formatting
   - Professional headers/footers
@@ -131,7 +131,7 @@ This roadmap outlines the remaining development work for Project Daylight MVP, o
 
 ---
 
-## Milestone 3: AI Intelligence Layer ⏳ NOT STARTED
+## Milestone 3: AI Intelligence Layer ⏳ IN PROGRESS
 *"Add the smart features that differentiate us"*
 
 ### Natural Language Interpreter
@@ -170,11 +170,11 @@ This roadmap outlines the remaining development work for Project Daylight MVP, o
 
 ---
 
-## Milestone 4: Landing Page & Polish ❌ NOT STARTED
+## Milestone 4: Landing Page & Polish ⏳ IN PROGRESS
 *"Get ready for real users"*
 
 ### Marketing Website
-- [ ] **Landing page development**
+- [x] **Landing page development**
   - Hero section with clear value prop
   - Feature highlights (3 core benefits)
   - Pricing section ($49-99/month)
@@ -193,6 +193,9 @@ This roadmap outlines the remaining development work for Project Daylight MVP, o
   - Initial data capture tutorial
   - Sample data for new users
   - First capture success moment
+
+- [x] **UI/UX consistency improvements**
+  - [x] Standardize toast notification colors (neutral for info, error for failures)
 
 - [ ] **Critical bug fixes**
   - Performance optimization
@@ -232,8 +235,8 @@ This roadmap outlines the remaining development work for Project Daylight MVP, o
   - Security audit
 
 - [ ] **Legal/Compliance**
-  - Terms of Service
-  - Privacy Policy
+  - [x] Terms of Service
+  - [x] Privacy Policy
   - Data handling documentation
   - HIPAA compliance basics
 
@@ -277,7 +280,7 @@ Each milestone should meet these criteria before moving forward:
 
 ### Milestone 1 Success ✅
 - ✅ Voice note → saved event in timeline
-- ⏳ Photo upload → extracted text in evidence (OCR not implemented yet)
+- ✅ Photo upload → extracted text in evidence (via OCR on uploaded images)
 
 ### Milestone 2 Success ✅
 - ✅ Generate real markdown from actual data

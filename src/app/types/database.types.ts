@@ -94,6 +94,162 @@ export type Database = {
         }
         Relationships: []
       }
+      cases: {
+        Row: {
+          case_number: string | null
+          case_type: string | null
+          children_count: number | null
+          children_summary: string | null
+          court_name: string | null
+          created_at: string
+          goals_summary: string | null
+          id: string
+          jurisdiction_county: string | null
+          jurisdiction_state: string | null
+          next_court_date: string | null
+          notes: string | null
+          opposing_party_name: string | null
+          opposing_party_role: string | null
+          parenting_schedule: string | null
+          risk_flags: string[]
+          stage: string | null
+          title: string
+          updated_at: string
+          user_id: string
+          your_role: string | null
+        }
+        Insert: {
+          case_number?: string | null
+          case_type?: string | null
+          children_count?: number | null
+          children_summary?: string | null
+          court_name?: string | null
+          created_at?: string
+          goals_summary?: string | null
+          id?: string
+          jurisdiction_county?: string | null
+          jurisdiction_state?: string | null
+          next_court_date?: string | null
+          notes?: string | null
+          opposing_party_name?: string | null
+          opposing_party_role?: string | null
+          parenting_schedule?: string | null
+          risk_flags?: string[]
+          stage?: string | null
+          title: string
+          updated_at?: string
+          user_id: string
+          your_role?: string | null
+        }
+        Update: {
+          case_number?: string | null
+          case_type?: string | null
+          children_count?: number | null
+          children_summary?: string | null
+          court_name?: string | null
+          created_at?: string
+          goals_summary?: string | null
+          id?: string
+          jurisdiction_county?: string | null
+          jurisdiction_state?: string | null
+          next_court_date?: string | null
+          notes?: string | null
+          opposing_party_name?: string | null
+          opposing_party_role?: string | null
+          parenting_schedule?: string | null
+          risk_flags?: string[]
+          stage?: string | null
+          title?: string
+          updated_at?: string
+          user_id?: string
+          your_role?: string | null
+        }
+        Relationships: []
+      }
+      communications: {
+        Row: {
+          agreement_violation: boolean | null
+          body_text: string
+          child_involved: boolean | null
+          created_at: string
+          direction: Database["public"]["Enums"]["communication_direction"]
+          event_id: string | null
+          evidence_id: string | null
+          from_identity: string | null
+          id: string
+          medium: Database["public"]["Enums"]["communication_medium"]
+          other_participants: string[]
+          safety_concern: boolean | null
+          sent_at: string | null
+          subject: string | null
+          summary: string
+          timestamp_precision: Database["public"]["Enums"]["timestamp_precision"]
+          to_identities: string[]
+          updated_at: string
+          user_id: string
+          welfare_impact: Database["public"]["Enums"]["welfare_impact"]
+        }
+        Insert: {
+          agreement_violation?: boolean | null
+          body_text: string
+          child_involved?: boolean | null
+          created_at?: string
+          direction?: Database["public"]["Enums"]["communication_direction"]
+          event_id?: string | null
+          evidence_id?: string | null
+          from_identity?: string | null
+          id?: string
+          medium?: Database["public"]["Enums"]["communication_medium"]
+          other_participants?: string[]
+          safety_concern?: boolean | null
+          sent_at?: string | null
+          subject?: string | null
+          summary: string
+          timestamp_precision?: Database["public"]["Enums"]["timestamp_precision"]
+          to_identities?: string[]
+          updated_at?: string
+          user_id: string
+          welfare_impact?: Database["public"]["Enums"]["welfare_impact"]
+        }
+        Update: {
+          agreement_violation?: boolean | null
+          body_text?: string
+          child_involved?: boolean | null
+          created_at?: string
+          direction?: Database["public"]["Enums"]["communication_direction"]
+          event_id?: string | null
+          evidence_id?: string | null
+          from_identity?: string | null
+          id?: string
+          medium?: Database["public"]["Enums"]["communication_medium"]
+          other_participants?: string[]
+          safety_concern?: boolean | null
+          sent_at?: string | null
+          subject?: string | null
+          summary?: string
+          timestamp_precision?: Database["public"]["Enums"]["timestamp_precision"]
+          to_identities?: string[]
+          updated_at?: string
+          user_id?: string
+          welfare_impact?: Database["public"]["Enums"]["welfare_impact"]
+        }
+        Relationships: [
+          {
+            foreignKeyName: "communications_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "communications_evidence_id_fkey"
+            columns: ["evidence_id"]
+            isOneToOne: false
+            referencedRelation: "evidence"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       event_evidence: {
         Row: {
           created_at: string
@@ -438,6 +594,8 @@ export type Database = {
       action_priority: "urgent" | "high" | "normal" | "low"
       action_status: "open" | "in_progress" | "done" | "cancelled"
       action_type: "document" | "contact" | "file" | "obtain" | "other"
+      communication_direction: "incoming" | "outgoing" | "mixed" | "unknown"
+      communication_medium: "text" | "email" | "unknown"
       event_type:
         | "incident"
         | "positive"
@@ -592,6 +750,8 @@ export const Constants = {
       action_priority: ["urgent", "high", "normal", "low"],
       action_status: ["open", "in_progress", "done", "cancelled"],
       action_type: ["document", "contact", "file", "obtain", "other"],
+      communication_direction: ["incoming", "outgoing", "mixed", "unknown"],
+      communication_medium: ["text", "email", "unknown"],
       event_type: [
         "incident",
         "positive",
