@@ -336,14 +336,32 @@ After successful launch and initial revenue:
 
 ## Next Immediate Steps
 
-### Priority 0: Production API Fix 🚨 CRITICAL BLOCKER
-0. **Diagnose and fix Vercel production API failures**
-   - All API routes (`/api/*`) fail in production but work locally
-   - Likely issues: Nuxt serverless function configuration, environment variables, or runtime settings
-   - Test each endpoint systematically in production
-   - Verify OpenAI API key and Supabase credentials are set correctly in Vercel
-   - Check Vercel function logs for error details
-   - May need to adjust Nuxt config for Vercel serverless compatibility
+### Priority 0: Production API & Authentication Fix 🚨 CRITICAL BLOCKER
+0. **Fix Vercel production API failures & Supabase auth configuration**
+   - **Production Issue:** All API routes (`/api/*`) fail in production but work locally
+   - **Root Cause Likely:** Broken Supabase server-side authentication configuration
+   
+   **Current Problems:**
+   - Every client-side API call manually passes auth headers: `{ Authorization: Bearer ${accessToken} }`
+   - Every server route manually extracts and validates these tokens
+   - Missing Supabase cookie configuration in `nuxt.config.ts`
+   - No service role key configured for server-side operations
+   
+   **Investigation Steps:**
+   1. Add proper Supabase configuration:
+      - Configure `cookieOptions` for proper session handling
+      - Add `serviceRole` key for server-side operations
+      - Set correct cookie domain/sameSite for production
+   2. Refactor authentication flow:
+      - Use built-in `serverSupabaseClient` instead of manual token extraction
+      - Let Supabase module handle auth cookies automatically
+      - Remove manual header passing from all client-side API calls
+   3. Verify environment variables in Vercel:
+      - SUPABASE_URL
+      - SUPABASE_KEY (anon key)
+      - SUPABASE_SERVICE_ROLE_KEY (for server operations)
+      - NUXT_OPENAI_API_KEY
+   4. Test each endpoint in production after fixes
 
 ### Priority 1: Screenshot & Photo Storage 🎯
 1. **End-to-end screenshot/photo flow**
@@ -351,21 +369,42 @@ After successful launch and initial revenue:
    - Ensure uploaded images are visible and manageable in the Evidence view
    - Wire captured photos into the same `evidence` records used by exports and the timeline
 
-### Priority 2: Connect AI Chat
-2. **Natural Language Interface** - Enable chat functionality
+### Priority 2: Refactor Authentication Pattern (Medium Priority)
+2. **Clean up Supabase authentication implementation**
+   - **Issue:** Currently using manual auth header passing instead of Supabase's built-in patterns
+   - **Impact:** Code duplication, maintenance burden, potential security issues
+   
+   **Required Changes:**
+   - Properly configure `@nuxtjs/supabase` module with:
+     - Cookie options for session management
+     - Service role configuration
+     - Correct redirect handling
+   - Refactor all client-side API calls to remove manual header passing
+   - Update server routes to use `serverSupabaseClient` with automatic auth
+   - Remove the manual token extraction/validation pattern from all API routes
+   - Test thoroughly in both dev and production environments
+   
+   **Expected Benefits:**
+   - Cleaner, more maintainable code
+   - Better security (cookies are httpOnly by default)
+   - Automatic session refresh handling
+   - Consistent auth across SSR and client-side rendering
+
+### Priority 3: Connect AI Chat
+3. **Natural Language Interface** - Enable chat functionality
    - Integrate LLM API (OpenAI/Anthropic)
    - Query against timeline/evidence data
    - Add citation support
    - Save conversation history for later review
 
-### Priority 3: Complete Photo Capture & OCR
-3. **Photo capture & OCR polish**
+### Priority 4: Complete Photo Capture & OCR
+4. **Photo capture & OCR polish**
    - Add/direct camera capture UX (where supported)
    - Smooth the Image → Communications Evidence workflow
-   - Make sure OCR’d text is clearly linked to evidence records
+   - Make sure OCR'd text is clearly linked to evidence records
 
-### Priority 4: PDF Export Enhancement (Optional)
-4. **PDF Generation** - Convert markdown to PDF format
+### Priority 5: PDF Export Enhancement (Optional)
+5. **PDF Generation** - Convert markdown to PDF format
    - Use Puppeteer or jsPDF
    - Professional formatting
    - Court-ready output
