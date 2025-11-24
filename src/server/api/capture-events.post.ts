@@ -1,4 +1,4 @@
-import { getSupabaseClient, getRequestUserId } from '../utils/supabaseClient'
+import { serverSupabaseServiceRole, serverSupabaseUser } from '#supabase/server'
 
 interface ExtractionEventParticipantGroups {
   primary?: string[]
@@ -46,8 +46,17 @@ interface CaptureEventsBody {
 }
 
 export default defineEventHandler(async (event) => {
-  const supabase = await getSupabaseClient(event)
-  const userId = await getRequestUserId(event)
+  const supabase = await serverSupabaseServiceRole(event)
+  const authUser = await serverSupabaseUser(event)
+
+  if (!authUser?.id) {
+    throw createError({
+      statusCode: 401,
+      statusMessage: 'User is not authenticated. Please sign in through Supabase and include the session token in the request.'
+    })
+  }
+
+  const userId = authUser.id
 
   const body = await readBody<CaptureEventsBody>(event)
 

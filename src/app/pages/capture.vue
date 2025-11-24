@@ -13,6 +13,10 @@ const error = ref<string | null>(null)
 const extractionError = ref<string | null>(null)
 const extractionResult = ref<any | null>(null)
 
+// Supabase auth/session used to authorize server-side extraction APIs
+const supabase = useSupabaseClient()
+const supabaseSession = useSupabaseSession()
+
 // Tab state: audio vs communications evidence
 const activeCaptureTab = ref<'audio' | 'communications'>('audio')
 
@@ -258,8 +262,13 @@ async function extractFromTranscript() {
   try {
     extractionViewMode.value = 'pretty'
 
+    // Ensure the Supabase access token is sent so serverSupabaseUser can authenticate the request
+    const accessToken =
+      supabaseSession.value?.access_token || (await supabase.auth.getSession()).data.session?.access_token
+
     const result = await $fetch<any>('/api/voice-extraction', {
       method: 'POST',
+      headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : undefined,
       body: {
         transcript: transcript.value
       }
@@ -379,8 +388,13 @@ async function extractFromCommunicationImage() {
   try {
     commExtractionViewMode.value = 'pretty'
 
+    // Ensure the Supabase access token is sent so serverSupabaseUser can authenticate the request
+    const accessToken =
+      supabaseSession.value?.access_token || (await supabase.auth.getSession()).data.session?.access_token
+
     const result = await $fetch<any>('/api/evidence-communication-extract', {
       method: 'POST',
+      headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : undefined,
       body: {
         imageUrl: communicationImageUrl.value.trim()
       }

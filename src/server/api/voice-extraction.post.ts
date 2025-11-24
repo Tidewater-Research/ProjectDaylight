@@ -1,6 +1,7 @@
 import OpenAI from 'openai'
 import { zodTextFormat } from 'openai/helpers/zod'
 import { z } from 'zod'
+import { serverSupabaseServiceRole, serverSupabaseUser } from '#supabase/server'
 
 interface VoiceExtractionBody {
   transcript?: string
@@ -62,6 +63,8 @@ const ExtractionSchema = z.object({
     metadata: MetadataSchema
   })
 })
+
+type ExtractionResult = z.infer<typeof ExtractionSchema>
 
 export default defineEventHandler(async (event) => {
   const config = useRuntimeConfig()
@@ -144,7 +147,7 @@ export default defineEventHandler(async (event) => {
     })
 
     // Use the parsed output from the Zod schema
-    const extraction = response.output_parsed
+    const extraction = response.output_parsed as ExtractionResult
     const usage = response.usage ?? null
 
     if (!extraction) {
@@ -154,10 +157,181 @@ export default defineEventHandler(async (event) => {
       })
     }
 
+    // Persist extracted events (and related participants / evidence mentions) to Supabase.
+    const supabase = await serverSupabaseServiceRole(event)
+
+    // Resolve the authenticated user from the Supabase access token, if provided,
+    // and fall back to cookie-based auth via serverSupabaseUser.
+    let userId: string | null = null
+
+    const authHeader = getHeader(event, 'authorization') || getHeader(event, 'Authorization')
+    const bearerPrefix = 'Bearer '
+    const token = authHeader?.startsWith(bearerPrefix)
+      ? authHeader.slice(bearerPrefix.length).trim()
+      : undefined
+
+    if (token) {
+      const { data: userResult, error: userError } = await supabase.auth.getUser(token)
+
+      if (userError) {
+        // eslint-disable-next-line no-console
+        console.error('Supabase auth.getUser error (voice extraction):', userError)
+      } else {
+        userId = userResult.user?.id ?? null
+      }
+    }
+
+    if (!userId) {
+      const authUser = await serverSupabaseUser(event)
+      userId = authUser?.id ?? null
+    }
+
+    if (!userId) {
+      throw createError({
+        statusCode: 401,
+        statusMessage: 'User is not authenticated. Please sign in through Supabase and include the session token in the request.'
+      })
+    }
+
+    const events = extraction.extraction?.events ?? []
+
+    let createdEventIds: string[] = []
+
+    if (events.length) {
+      const eventsToInsert = events.map((e) => ({
+        user_id: userId,
+        recording_id: null,
+        type: e.type,
+        title: e.title || 'Untitled event',
+        description: e.description,
+        primary_timestamp: e.primary_timestamp ?? null,
+        timestamp_precision: e.timestamp_precision ?? 'unknown',
+        duration_minutes: e.duration_minutes ?? null,
+        location: e.location ?? null,
+        child_involved: e.child_involved ?? false,
+        agreement_violation: e.custody_relevance?.agreement_violation ?? null,
+        safety_concern: e.custody_relevance?.safety_concern ?? null,
+        welfare_impact: e.custody_relevance?.welfare_impact ?? 'unknown'
+      }))
+
+      const { data: insertedEvents, error: insertEventsError } = await supabase
+        .from('events')
+        .insert(eventsToInsert)
+        .select('id')
+
+      if (insertEventsError) {
+        // eslint-disable-next-line no-console
+        console.error('Failed to insert events from voice extraction:', insertEventsError)
+        throw createError({
+          statusCode: 500,
+          statusMessage: 'Failed to save extracted events.'
+        })
+      }
+
+      createdEventIds = (insertedEvents ?? []).map((row: any) => row.id as string)
+
+      type EvidenceMention = z.infer<typeof EvidenceMentionedSchema>
+
+      const participantsToInsert: {
+        user_id: string
+        event_id: string
+        role: 'primary' | 'witness' | 'professional'
+        label: string
+      }[] = []
+
+      const evidenceMentionsToInsert: {
+        user_id: string
+        event_id: string
+        type: EvidenceMention['type']
+        description: string
+        status: EvidenceMention['status']
+      }[] = []
+
+      createdEventIds.forEach((eventId, index) => {
+        const source = events[index]
+        if (!source) {
+          return
+        }
+
+        if (source.participants) {
+          source.participants.primary?.forEach((label) => {
+            if (!label) return
+            participantsToInsert.push({
+              user_id: userId,
+              event_id: eventId,
+              role: 'primary',
+              label
+            })
+          })
+
+          source.participants.witnesses?.forEach((label) => {
+            if (!label) return
+            participantsToInsert.push({
+              user_id: userId,
+              event_id: eventId,
+              role: 'witness',
+              label
+            })
+          })
+
+          source.participants.professionals?.forEach((label) => {
+            if (!label) return
+            participantsToInsert.push({
+              user_id: userId,
+              event_id: eventId,
+              role: 'professional',
+              label
+            })
+          })
+        }
+
+        source.evidence_mentioned?.forEach((mention) => {
+          if (!mention?.description) return
+
+          evidenceMentionsToInsert.push({
+            user_id: userId,
+            event_id: eventId,
+            type: mention.type,
+            description: mention.description,
+            status: mention.status
+          })
+        })
+      })
+
+      if (participantsToInsert.length) {
+        const { error: participantsError } = await supabase
+          .from('event_participants')
+          .insert(participantsToInsert)
+
+        if (participantsError) {
+          // eslint-disable-next-line no-console
+          console.error('Failed to insert event participants from voice extraction:', participantsError)
+        }
+      }
+
+      if (evidenceMentionsToInsert.length) {
+        const { error: mentionsError } = await supabase
+          .from('evidence_mentions')
+          .insert(evidenceMentionsToInsert)
+
+        if (mentionsError) {
+          // eslint-disable-next-line no-console
+          console.error('Failed to insert evidence mentions from voice extraction:', mentionsError)
+        }
+      }
+    }
+
     let payload: any = extraction
 
     // Attach token usage information from OpenAI
     payload._usage = usage
+
+    if (createdEventIds.length) {
+      payload._db = {
+        ...(payload._db || {}),
+        created_event_ids: createdEventIds
+      }
+    }
 
     // Optionally compute a cost estimate in USD if per-1K token rates are provided via env
     // OPENAI_GPT5_MINI_INPUT_RATE_USD_PER_1K_TOKENS and OPENAI_GPT5_MINI_OUTPUT_RATE_USD_PER_1K_TOKENS

@@ -1,6 +1,7 @@
 import OpenAI from 'openai'
 import { zodTextFormat } from 'openai/helpers/zod'
 import { z } from 'zod'
+import { serverSupabaseServiceRole, serverSupabaseUser } from '#supabase/server'
 
 interface EvidenceCommunicationExtractBody {
   /**
@@ -65,6 +66,8 @@ const ExtractionSchema = z.object({
     })
   })
 })
+
+type ExtractionResult = z.infer<typeof ExtractionSchema>
 
 export default defineEventHandler(async (event) => {
   const config = useRuntimeConfig()
@@ -149,7 +152,7 @@ export default defineEventHandler(async (event) => {
     })
 
     // Use the parsed output from the Zod schema
-    const extraction = response.output_parsed
+    const extraction = response.output_parsed as ExtractionResult
     const usage = response.usage ?? null
 
     if (!extraction) {
@@ -159,10 +162,168 @@ export default defineEventHandler(async (event) => {
       })
     }
 
+    const supabase = await serverSupabaseServiceRole(event)
+
+    // Resolve the authenticated user.
+    // Prefer the Supabase access token sent in the Authorization header,
+    // but fall back to cookie-based auth via serverSupabaseUser for flexibility.
+    let userId: string | null = null
+
+    const authHeader = getHeader(event, 'authorization') || getHeader(event, 'Authorization')
+    const bearerPrefix = 'Bearer '
+    const token = authHeader?.startsWith(bearerPrefix)
+      ? authHeader.slice(bearerPrefix.length).trim()
+      : undefined
+
+    if (token) {
+      const { data: userResult, error: userError } = await supabase.auth.getUser(token)
+
+      if (userError) {
+        // eslint-disable-next-line no-console
+        console.error('Supabase auth.getUser error (communications extraction):', userError)
+      } else {
+        userId = userResult.user?.id ?? null
+      }
+    }
+
+    if (!userId) {
+      const authUser = await serverSupabaseUser(event)
+      userId = authUser?.id ?? null
+    }
+
+    if (!userId) {
+      throw createError({
+        statusCode: 401,
+        statusMessage: 'User is not authenticated. Please sign in through Supabase and include the session token in the request.'
+      })
+    }
+
+    const communications = extraction.extraction?.communications ?? []
+    const dbSuggestions = extraction.extraction?.db_suggestions
+
+    const createdCommunicationIds: string[] = []
+    const createdEventIds: string[] = []
+    const createdEvidenceIds: string[] = []
+
+    if (communications.length) {
+      const communicationsToInsert = communications.map((comm) => ({
+        user_id: userId,
+        medium: comm.medium,
+        direction: comm.direction,
+        subject: comm.subject,
+        summary: comm.summary,
+        body_text: comm.body_text,
+        from_identity: comm.participants?.from ?? null,
+        to_identities: comm.participants?.to ?? [],
+        other_participants: comm.participants?.others ?? [],
+        sent_at: comm.sent_at ?? null,
+        timestamp_precision: comm.timestamp_precision ?? 'unknown',
+        child_involved: comm.child_involved ?? null,
+        agreement_violation: comm.agreement_violation ?? null,
+        safety_concern: comm.safety_concern ?? null,
+        welfare_impact: comm.welfare_impact ?? 'unknown'
+      }))
+
+      const { data: insertedCommunications, error: communicationsError } = await supabase
+        .from('communications')
+        .insert(communicationsToInsert)
+        .select('id')
+
+      if (communicationsError) {
+        // eslint-disable-next-line no-console
+        console.error('Failed to insert communications from evidence extraction:', communicationsError)
+        throw createError({
+          statusCode: 500,
+          statusMessage: 'Failed to save extracted communications.'
+        })
+      }
+
+      for (const row of insertedCommunications ?? []) {
+        createdCommunicationIds.push(row.id as string)
+      }
+    }
+
+    if (dbSuggestions?.evidence?.length) {
+      const evidenceToInsert = dbSuggestions.evidence.map((ev) => ({
+        user_id: userId,
+        source_type: ev.source_type,
+        storage_path: null,
+        original_filename: null,
+        mime_type: null,
+        summary: ev.summary,
+        tags: ev.tags ?? []
+      }))
+
+      const { data: insertedEvidence, error: evidenceError } = await supabase
+        .from('evidence')
+        .insert(evidenceToInsert)
+        .select('id')
+
+      if (evidenceError) {
+        // eslint-disable-next-line no-console
+        console.error('Failed to insert suggested evidence from communications extraction:', evidenceError)
+        throw createError({
+          statusCode: 500,
+          statusMessage: 'Failed to save suggested evidence.'
+        })
+      }
+
+      for (const row of insertedEvidence ?? []) {
+        createdEvidenceIds.push(row.id as string)
+      }
+    }
+
+    if (dbSuggestions?.events?.length) {
+      const eventsToInsert = dbSuggestions.events.map((ev) => ({
+        user_id: userId,
+        recording_id: null,
+        type: ev.type,
+        title: ev.title || 'Communication event',
+        description: ev.description || ev.title || '',
+        primary_timestamp: ev.primary_timestamp ?? null,
+        timestamp_precision: ev.timestamp_precision ?? 'unknown',
+        duration_minutes: ev.duration_minutes ?? null,
+        location: ev.location ?? null,
+        child_involved: ev.child_involved ?? false,
+        agreement_violation: ev.agreement_violation ?? null,
+        safety_concern: ev.safety_concern ?? null,
+        welfare_impact: ev.welfare_impact ?? 'unknown'
+      }))
+
+      const { data: insertedEvents, error: eventsError } = await supabase
+        .from('events')
+        .insert(eventsToInsert)
+        .select('id')
+
+      if (eventsError) {
+        // eslint-disable-next-line no-console
+        console.error('Failed to insert suggested events from communications extraction:', eventsError)
+        throw createError({
+          statusCode: 500,
+          statusMessage: 'Failed to save suggested events.'
+        })
+      }
+
+      for (const row of insertedEvents ?? []) {
+        createdEventIds.push(row.id as string)
+      }
+    }
+
+    // Best-effort linking between first created event/evidence and communications rows can be added later.
+
     let payload: any = extraction
 
     // Attach token usage information from OpenAI, mirroring voice-extraction.
     payload._usage = usage
+
+    if (createdCommunicationIds.length || createdEventIds.length || createdEvidenceIds.length) {
+      payload._db = {
+        ...(payload._db || {}),
+        created_communication_ids: createdCommunicationIds,
+        created_event_ids: createdEventIds,
+        created_evidence_ids: createdEvidenceIds
+      }
+    }
 
     let costEstimateUsd: number | null = null
 

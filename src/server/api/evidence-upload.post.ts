@@ -1,10 +1,42 @@
 import { readFiles } from 'h3-formidable'
 import fs from 'fs/promises'
-import { getSupabaseClient, getRequestUserId } from '../utils/supabaseClient'
+import { serverSupabaseServiceRole, serverSupabaseUser } from '#supabase/server'
 
 export default defineEventHandler(async (event) => {
-  const supabase = await getSupabaseClient(event)
-  const userId = await getRequestUserId(event)
+  const supabase = await serverSupabaseServiceRole(event)
+
+  // Resolve the authenticated user from the Supabase access token (Authorization header)
+  // and fall back to cookie-based auth via serverSupabaseUser.
+  let userId: string | null = null
+
+  const authHeader = getHeader(event, 'authorization') || getHeader(event, 'Authorization')
+  const bearerPrefix = 'Bearer '
+  const token = authHeader?.startsWith(bearerPrefix)
+    ? authHeader.slice(bearerPrefix.length).trim()
+    : undefined
+
+  if (token) {
+    const { data: userResult, error: userError } = await supabase.auth.getUser(token)
+
+    if (userError) {
+      // eslint-disable-next-line no-console
+      console.error('Supabase auth.getUser error (evidence upload):', userError)
+    } else {
+      userId = userResult.user?.id ?? null
+    }
+  }
+
+  if (!userId) {
+    const authUser = await serverSupabaseUser(event)
+    userId = authUser?.id ?? null
+  }
+
+  if (!userId) {
+    throw createError({
+      statusCode: 401,
+      statusMessage: 'User is not authenticated. Please sign in through Supabase and include the session token in the request.'
+    })
+  }
 
   let tempFilePath: string | undefined
 
