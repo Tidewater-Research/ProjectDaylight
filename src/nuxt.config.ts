@@ -18,8 +18,8 @@ export default defineNuxtConfig({
   // Private runtime configuration (only available on the server)
   runtimeConfig: {
     openai: {
-      // Make sure you have OPENAI_API_KEY set in your .env file
-      apiKey: process.env.OPENAI_API_KEY
+      // Will be overridden by NUXT_OPENAI_API_KEY environment variable at runtime
+      apiKey: ''
     }
   },
 
@@ -31,6 +31,7 @@ export default defineNuxtConfig({
   },
 
   compatibilityDate: '2025-01-15',
+
 
   // Supabase configuration
   supabase: {
