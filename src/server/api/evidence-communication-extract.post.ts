@@ -6,10 +6,18 @@ import { serverSupabaseServiceRole, serverSupabaseUser } from '#supabase/server'
 interface EvidenceCommunicationExtractBody {
   /**
    * URL or data URL for the screenshot/image that OpenAI can fetch.
-   * For the capture page demo we send a data URL (base64) generated from a local file,
-   * so we don't need to store the image in Supabase first.
+   * For the capture page we typically send a data URL (base64) generated from a local file.
    */
   imageUrl: string
+  /**
+   * Optional original filename from the client (used for evidence metadata only).
+   */
+  originalFilename?: string | null
+  /**
+   * Optional mime type from the client input element.
+   * When omitted, we will attempt to infer it from the data URL.
+   */
+  mimeType?: string | null
 }
 
 // Define Zod schema for structured extraction
@@ -90,6 +98,164 @@ export default defineEventHandler(async (event) => {
   }
 
   try {
+    const supabase = await serverSupabaseServiceRole(event)
+
+    // Resolve the authenticated user.
+    // Prefer the Supabase access token sent in the Authorization header,
+    // but fall back to cookie-based auth via serverSupabaseUser for flexibility.
+    let userId: string | null = null
+
+    const authHeader = getHeader(event, 'authorization') || getHeader(event, 'Authorization')
+    const bearerPrefix = 'Bearer '
+    const token = authHeader?.startsWith(bearerPrefix)
+      ? authHeader.slice(bearerPrefix.length).trim()
+      : undefined
+
+    if (token) {
+      const { data: userResult, error: userError } = await supabase.auth.getUser(token)
+
+      if (userError) {
+        // eslint-disable-next-line no-console
+        console.error('Supabase auth.getUser error (communications extraction):', userError)
+      } else {
+        userId = userResult.user?.id ?? null
+      }
+    }
+
+    if (!userId) {
+      const authUser = await serverSupabaseUser(event)
+      userId = authUser?.id ?? null
+    }
+
+    if (!userId) {
+      throw createError({
+        statusCode: 401,
+        statusMessage: 'User is not authenticated. Please sign in through Supabase and include the session token in the request.'
+      })
+    }
+
+    // Best-effort: load user and case context to help the model understand who is speaking
+    // and what legal matter these communications relate to.
+    let userDisplayName: string | null = null
+
+    try {
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('full_name')
+        .eq('id', userId)
+        .maybeSingle()
+
+      if (profile?.full_name) {
+        userDisplayName = profile.full_name
+      }
+    } catch {
+      // Ignore profile lookup failures; fall back to generic name below.
+    }
+
+    let caseContextDescription =
+      'The user is involved in a family law / custody / divorce matter and is collecting communication evidence for their case.'
+
+    try {
+      const { data: caseRow } = await supabase
+        .from('cases')
+        .select('case_type, stage, your_role, opposing_party_name, goals_summary')
+        .eq('user_id', userId)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle()
+
+      if (caseRow) {
+        const parts: string[] = []
+
+        if (caseRow.case_type) {
+          parts.push(`case type: ${caseRow.case_type}`)
+        }
+
+        if (caseRow.your_role) {
+          parts.push(`your role: ${caseRow.your_role}`)
+        }
+
+        if (caseRow.stage) {
+          parts.push(`stage: ${caseRow.stage}`)
+        }
+
+        if (caseRow.opposing_party_name) {
+          parts.push(`opposing party: ${caseRow.opposing_party_name}`)
+        }
+
+        if (caseRow.goals_summary) {
+          parts.push(`user goals: ${caseRow.goals_summary}`)
+        }
+
+        if (parts.length) {
+          caseContextDescription = `The user is involved in a family law matter with the following context: ${parts.join(
+            '; '
+          )}. They are using this screenshot as evidence for that case.`
+        }
+      }
+    } catch {
+      // Ignore case lookup failures; keep generic description.
+    }
+
+    const speakerLine = userDisplayName
+      ? `The person providing this screenshot is ${userDisplayName}. When you see first-person language like "I" or "me" in the messages, treat it as referring to them unless clearly otherwise.`
+      : 'The person providing this screenshot is the user. When you see first-person language like "I" or "me" in the messages, treat it as referring to the same person consistently unless clearly otherwise.'
+
+    /**
+     * Persist the original image in Supabase Storage when we receive a data URL.
+     * This ensures the evidence table can always point back to the original artifact.
+     */
+    let persistedStoragePath: string | null = null
+    let persistedMimeType: string | null = body.mimeType?.trim() || null
+    let persistedOriginalFilename: string | null = body.originalFilename?.trim() || null
+
+    try {
+      if (imageUrl.startsWith('data:')) {
+        const match = /^data:([^;]+);base64,(.*)$/.exec(imageUrl)
+        if (match) {
+          const inferredMime = match[1]
+          const base64Data = match[2]
+
+          if (!persistedMimeType) {
+            persistedMimeType = inferredMime
+          }
+
+          const buffer = Buffer.from(base64Data, 'base64')
+          const bucket = 'daylight-files'
+          const timestamp = Date.now()
+
+          const safeNameBase =
+            persistedOriginalFilename ||
+            (persistedMimeType?.startsWith('image/')
+              ? 'communication-evidence'
+              : 'evidence-image')
+
+          const extensionFromMime = persistedMimeType?.split('/')?.[1] || 'bin'
+          const sanitizedName = safeNameBase.replace(/[^\w.\-]+/g, '_')
+          const storagePath = `evidence/${userId}/${timestamp}-${sanitizedName}.${extensionFromMime}`
+
+          const { error: uploadError } = await supabase.storage
+            .from(bucket)
+            .upload(storagePath, buffer, {
+              contentType: persistedMimeType || 'application/octet-stream',
+              upsert: false
+            })
+
+          if (uploadError) {
+            // eslint-disable-next-line no-console
+            console.error('Supabase storage upload error (communications evidence):', uploadError)
+          } else {
+            persistedStoragePath = storagePath
+            persistedOriginalFilename = safeNameBase
+          }
+        }
+      }
+    } catch (uploadError) {
+      // eslint-disable-next-line no-console
+      console.error('Failed to persist communication image to storage:', uploadError)
+      // Best-effort: we still continue to run the LLM extraction even if storage fails.
+    }
+
     const openai = new OpenAI({
       apiKey: config.openai.apiKey
     })
@@ -117,6 +283,9 @@ export default defineEventHandler(async (event) => {
               text: [
                 'You are an AI extraction engine for Project Daylight.',
                 'You receive a single image URL that is a screenshot or photo of communication evidence (typically text messages or emails).',
+                '',
+                speakerLine,
+                caseContextDescription,
                 '',
                 'Your job is to:',
                 '- Perform OCR on the image to recover the text.',
@@ -159,42 +328,6 @@ export default defineEventHandler(async (event) => {
       throw createError({
         statusCode: 502,
         statusMessage: 'Extraction model returned an empty response.'
-      })
-    }
-
-    const supabase = await serverSupabaseServiceRole(event)
-
-    // Resolve the authenticated user.
-    // Prefer the Supabase access token sent in the Authorization header,
-    // but fall back to cookie-based auth via serverSupabaseUser for flexibility.
-    let userId: string | null = null
-
-    const authHeader = getHeader(event, 'authorization') || getHeader(event, 'Authorization')
-    const bearerPrefix = 'Bearer '
-    const token = authHeader?.startsWith(bearerPrefix)
-      ? authHeader.slice(bearerPrefix.length).trim()
-      : undefined
-
-    if (token) {
-      const { data: userResult, error: userError } = await supabase.auth.getUser(token)
-
-      if (userError) {
-        // eslint-disable-next-line no-console
-        console.error('Supabase auth.getUser error (communications extraction):', userError)
-      } else {
-        userId = userResult.user?.id ?? null
-      }
-    }
-
-    if (!userId) {
-      const authUser = await serverSupabaseUser(event)
-      userId = authUser?.id ?? null
-    }
-
-    if (!userId) {
-      throw createError({
-        statusCode: 401,
-        statusMessage: 'User is not authenticated. Please sign in through Supabase and include the session token in the request.'
       })
     }
 
@@ -243,33 +376,48 @@ export default defineEventHandler(async (event) => {
       }
     }
 
-    if (dbSuggestions?.evidence?.length) {
-      const evidenceToInsert = dbSuggestions.evidence.map((ev) => ({
+    if (dbSuggestions?.evidence?.length || persistedStoragePath) {
+      const primarySuggestion = dbSuggestions?.evidence?.[0]
+
+      const sourceType: 'text' | 'email' | 'photo' | 'document' | 'recording' | 'other' =
+        primarySuggestion?.source_type ??
+        (persistedMimeType?.startsWith('image/') ? 'photo' : 'document')
+
+      const summary =
+        primarySuggestion?.summary ??
+        (persistedOriginalFilename
+          ? `Screenshot: ${persistedOriginalFilename}`
+          : 'Screenshot communication evidence')
+
+      const tags = primarySuggestion?.tags ?? []
+
+      const insertPayload = {
         user_id: userId,
-        source_type: ev.source_type,
-        storage_path: null,
-        original_filename: null,
-        mime_type: null,
-        summary: ev.summary,
-        tags: ev.tags ?? []
-      }))
+        source_type: sourceType,
+        storage_path: persistedStoragePath,
+        original_filename: persistedOriginalFilename,
+        mime_type: persistedMimeType,
+        summary,
+        tags
+      }
 
       const { data: insertedEvidence, error: evidenceError } = await supabase
         .from('evidence')
-        .insert(evidenceToInsert)
+        .insert(insertPayload)
         .select('id')
+        .single()
 
       if (evidenceError) {
         // eslint-disable-next-line no-console
-        console.error('Failed to insert suggested evidence from communications extraction:', evidenceError)
+        console.error('Failed to insert evidence for communications extraction:', evidenceError)
         throw createError({
           statusCode: 500,
-          statusMessage: 'Failed to save suggested evidence.'
+          statusMessage: 'Failed to save evidence metadata.'
         })
       }
 
-      for (const row of insertedEvidence ?? []) {
-        createdEvidenceIds.push(row.id as string)
+      if (insertedEvidence?.id) {
+        createdEvidenceIds.push(insertedEvidence.id as string)
       }
     }
 

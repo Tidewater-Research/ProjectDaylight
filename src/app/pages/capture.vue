@@ -23,6 +23,7 @@ const activeCaptureTab = ref<'audio' | 'communications'>('audio')
 // Communications evidence (file -> image data URL -> structured evidence)
 const communicationImageUrl = ref('') // data URL or external URL for the selected image
 const communicationImageName = ref('')
+const communicationImageMimeType = ref('')
 const hasCommunicationImage = computed(() => communicationImageUrl.value.trim().length > 0)
 const isCommExtracting = ref(false)
 const commExtractionError = ref<string | null>(null)
@@ -31,6 +32,10 @@ const commExtractionViewMode = ref<'pretty' | 'raw'>('pretty')
 
 const captureText = ref('')
 const hasCaptureText = computed(() => captureText.value.trim().length > 0)
+
+// Calendar date when the events in this note occurred.
+// Defaults to today's date (local), formatted as YYYY-MM-DD for the native date input.
+const eventDate = ref<string>(new Date().toISOString().slice(0, 10))
 
 const recordingBlob = ref<Blob | null>(null)
 const recordingUrl = useObjectUrl(recordingBlob)
@@ -270,7 +275,8 @@ async function extractFromTranscript() {
       method: 'POST',
       headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : undefined,
       body: {
-        transcript: transcript.value
+        transcript: transcript.value,
+        referenceDate: eventDate.value || undefined
       }
     })
 
@@ -360,10 +366,12 @@ function onCommunicationFileChange(event: Event) {
   if (!file) {
     communicationImageName.value = ''
     communicationImageUrl.value = ''
+    communicationImageMimeType.value = ''
     return
   }
 
   communicationImageName.value = file.name
+  communicationImageMimeType.value = file.type || ''
 
   const reader = new FileReader()
   reader.onload = () => {
@@ -396,7 +404,9 @@ async function extractFromCommunicationImage() {
       method: 'POST',
       headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : undefined,
       body: {
-        imageUrl: communicationImageUrl.value.trim()
+        imageUrl: communicationImageUrl.value.trim(),
+        originalFilename: communicationImageName.value || undefined,
+        mimeType: communicationImageMimeType.value || undefined
       }
     })
 
@@ -567,6 +577,22 @@ async function extractFromCommunicationImage() {
                     Use text as transcript
                   </UButton>
                 </div>
+              </div>
+
+              <div class="space-y-2 w-full">
+                <p class="text-sm font-medium text-highlighted">
+                  Date of this note
+                </p>
+                <p class="text-xs text-muted">
+                  Choose the calendar date when these events happened. It defaults to today so you can quickly log
+                  something that just occurred, but you can change it to document earlier incidents.
+                </p>
+                <UInput
+                  v-model="eventDate"
+                  type="date"
+                  color="neutral"
+                  variant="outline"
+                />
               </div>
 
               <div
@@ -894,8 +920,8 @@ async function extractFromCommunicationImage() {
                 </p>
                 <p class="text-sm text-muted">
                   Select a screenshot of texts or email from your device and we&apos;ll extract a structured
-                  communications object plus suggested event/evidence payloads. The image is sent once to the AI
-                  service and not stored in Supabase for this demo.
+                  communications object plus suggested event/evidence payloads. The original image will be stored
+                  securely in Supabase Storage and linked to an evidence record, so you can reference it later.
                 </p>
               </div>
             </div>

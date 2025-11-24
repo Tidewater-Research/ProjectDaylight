@@ -8,6 +8,7 @@ type EventEvidenceRow = Tables<'event_evidence'>
 type EvidenceMentionRow = Tables<'evidence_mentions'>
 type ActionItemRow = Tables<'action_items'>
 type CommunicationRow = Tables<'communications'>
+type EventEvidenceSuggestionRow = Tables<'event_evidence_suggestions'>
 
 interface EventDetailResponse extends TimelineEvent {
   // Additional fields from the database
@@ -54,6 +55,30 @@ interface EventDetailResponse extends TimelineEvent {
     summary: string
     sentAt?: string
   }>
+  
+  suggestedEvidence?: Array<{
+    id: string
+    evidenceType: string
+    evidenceStatus: string
+    description: string
+    fulfilledEvidenceId?: string
+    fulfilledAt?: string
+    dismissedAt?: string
+  }>
+}
+
+interface UpdateEventBody {
+  title?: string
+  description?: string
+  type?: TimelineEvent['type']
+  timestamp?: string | null
+  timestampPrecision?: EventRow['timestamp_precision'] | null
+  location?: string | null
+  durationMinutes?: number | null
+  childInvolved?: boolean | null
+  agreementViolation?: boolean | null
+  safetyConcern?: boolean | null
+  welfareImpact?: EventRow['welfare_impact'] | null
 }
 
 function mapEventToDetailResponse(
@@ -62,7 +87,8 @@ function mapEventToDetailResponse(
   evidenceRows: any[],
   evidenceMentions: EvidenceMentionRow[],
   actionItems: ActionItemRow[],
-  communications: CommunicationRow[]
+  communications: CommunicationRow[],
+  suggestions: EventEvidenceSuggestionRow[]
 ): EventDetailResponse {
   return {
     id: row.id,
@@ -117,6 +143,16 @@ function mapEventToDetailResponse(
       subject: c.subject || undefined,
       summary: c.summary,
       sentAt: c.sent_at || undefined
+    })),
+    
+    suggestedEvidence: suggestions.map(se => ({
+      id: se.id,
+      evidenceType: se.evidence_type || 'other',
+      evidenceStatus: se.evidence_status || 'need_to_get',
+      description: se.description,
+      fulfilledEvidenceId: se.fulfilled_evidence_id || undefined,
+      fulfilledAt: se.fulfilled_at || undefined,
+      dismissedAt: se.dismissed_at || undefined
     }))
   }
 }
@@ -143,7 +179,62 @@ export default eventHandler(async (event): Promise<EventDetailResponse> => {
     })
   }
 
-  // Fetch the event
+  const method = getMethod(event)
+
+  if (method && method.toUpperCase() !== 'GET') {
+    // Handle simple PATCH/PUT-style updates for core event fields.
+    if (method.toUpperCase() !== 'PATCH' && method.toUpperCase() !== 'PUT') {
+      throw createError({
+        statusCode: 405,
+        statusMessage: 'Method not allowed'
+      })
+    }
+
+    const body = await readBody<UpdateEventBody>(event)
+
+    const update: Tables<'events'>['Update'] = {}
+
+    if (body.title !== undefined) update.title = body.title || 'Untitled event'
+    if (body.description !== undefined) update.description = body.description || ''
+    if (body.type !== undefined) update.type = body.type as EventRow['type']
+    if (body.timestamp !== undefined) update.primary_timestamp = body.timestamp
+    if (body.timestampPrecision !== undefined && body.timestampPrecision !== null) {
+      update.timestamp_precision = body.timestampPrecision
+    }
+    if (body.location !== undefined) update.location = body.location
+    if (body.durationMinutes !== undefined) update.duration_minutes = body.durationMinutes
+    if (body.childInvolved !== undefined) update.child_involved = body.childInvolved ?? false
+    if (body.agreementViolation !== undefined) update.agreement_violation = body.agreementViolation
+    if (body.safetyConcern !== undefined) update.safety_concern = body.safetyConcern
+    if (body.welfareImpact !== undefined && body.welfareImpact !== null) {
+      update.welfare_impact = body.welfareImpact
+    }
+
+    if (Object.keys(update).length === 0) {
+      throw createError({
+        statusCode: 400,
+        statusMessage: 'No updatable fields were provided.'
+      })
+    }
+
+    update.updated_at = new Date().toISOString()
+
+    const { error: updateError } = await supabase
+      .from('events')
+      .update(update)
+      .eq('id', eventId)
+      .eq('user_id', userId)
+
+    if (updateError) {
+      console.error('Supabase update event error (event detail):', updateError)
+      throw createError({
+        statusCode: 500,
+        statusMessage: 'Failed to update event.'
+      })
+    }
+  }
+
+  // Fetch the (possibly updated) event
   const { data: eventRow, error: eventError } = await supabase
     .from('events')
     .select('*')
@@ -165,7 +256,8 @@ export default eventHandler(async (event): Promise<EventDetailResponse> => {
     { data: evidenceRows, error: evidenceError },
     { data: evidenceMentionsRows, error: evidenceMentionsError },
     { data: actionItemsRows, error: actionItemsError },
-    { data: communicationsRows, error: communicationsError }
+    { data: communicationsRows, error: communicationsError },
+    { data: suggestionsRows, error: suggestionsError }
   ] = await Promise.all([
     supabase
       .from('event_participants')
@@ -193,6 +285,11 @@ export default eventHandler(async (event): Promise<EventDetailResponse> => {
     supabase
       .from('communications')
       .select('*')
+      .eq('event_id', eventId),
+    
+    supabase
+      .from('event_evidence_suggestions')
+      .select('*')
       .eq('event_id', eventId)
   ])
 
@@ -202,9 +299,10 @@ export default eventHandler(async (event): Promise<EventDetailResponse> => {
   if (evidenceMentionsError) console.error('Error fetching evidence mentions:', evidenceMentionsError)
   if (actionItemsError) console.error('Error fetching action items:', actionItemsError)
   if (communicationsError) console.error('Error fetching communications:', communicationsError)
+  if (suggestionsError) console.error('Error fetching event evidence suggestions:', suggestionsError)
 
   // Extract participant labels
-  const participants = (participantsRows || []).map(p => p.label)
+  const participants = (participantsRows || []).map((p: EventParticipantRow) => p.label)
   
   // Process evidence with details
   const evidenceDetails = (evidenceRows || []).map((row: any) => ({
@@ -222,6 +320,7 @@ export default eventHandler(async (event): Promise<EventDetailResponse> => {
     evidenceDetails,
     (evidenceMentionsRows || []) as EvidenceMentionRow[],
     (actionItemsRows || []) as ActionItemRow[],
-    (communicationsRows || []) as CommunicationRow[]
+    (communicationsRows || []) as CommunicationRow[],
+    (suggestionsRows || []) as EventEvidenceSuggestionRow[]
   )
 })

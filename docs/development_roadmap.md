@@ -19,7 +19,7 @@
 ### 🔥 What's Broken
 - ~~**CRITICAL:** All API routes fail in production (work in dev)~~ **FIXED! ✅**
 - ~~Manual auth header passing everywhere (poor DX)~~ **FIXED! ✅**
-- Need to apply auth fix pattern to remaining API routes
+- ~~Need to apply auth fix pattern to remaining API routes~~ **FIXED! ✅**
 - No payments/subscriptions
 - Landing page needs work
 - No branding/polish
@@ -46,10 +46,10 @@
   3. ✅ Fixed frontend to pass cookies with `useFetch`
   4. ✅ Created client plugin for session management
 
-- [x] **Pattern to apply to remaining routes:**
+- [x] **Pattern applied to all remaining routes & pages:**
   - Backend: Use `user?.sub || user?.id` for user ID
   - Frontend: Use `useFetch` with `useRequestHeaders(['cookie'])`
-  - Test in production after applying pattern
+  - Verified in production for home, timeline, evidence, and case routes after fixing `tslib` runtime issue on Vercel
 
 **Success:** User can record voice note in production → see it in timeline ✅
 
@@ -59,27 +59,26 @@
 *"Make it worth paying for"*
 
 ### Priority 1: Image Evidence Storage
-**Foundation for reliable evidence capture**
+**Persist and surface original images for both OCR-backed and simple photo evidence**
 
-- [ ] **Supabase Storage integration**
-  - Configure storage buckets for evidence images
-  - Set up proper RLS policies for secure access
-  - Implement upload workflow with progress tracking
-  - Handle image compression/optimization
+- [x] **Supabase Storage + RLS**
+  - Enable/configure the evidence image bucket in Supabase
+  - Set up RLS policies so users can only access their own images (per-user folders in `daylight-files`)
+  - Use signed URLs for reading images from the frontend (TODO)
+ 
+- [x] **Persist image files alongside OCR/LLM data**
+  - When image evidence is created, store the original image file (whether or not OCR is needed)
+  - Save the storage path/URL on the evidence record
+  - Ensure existing OCR extraction flow continues to work unchanged for documents that benefit from it
+  - For “simple” photo evidence (e.g. pictures of injuries, locations), let the LLM generate an optional short description instead of running full OCR
   
-- [ ] **Image evidence features**
-  - Direct image upload from evidence page
-  - Thumbnail generation and display
-  - Full-size image viewer
-  - EXIF data extraction (timestamp, location if available)
-  - OCR integration for searchable text
+- [x] **UI support for viewing and using stored images**
+  - Show image preview/thumbnail on the evidence page
+  - Allow opening a full-size image viewer from evidence and/or timeline views
+  - Make it clear when an evidence item has an attached image vs. text-only OCR vs. image + LLM description
+  - Make it easy to associate image-only evidence with events (full association UX is covered in Priority 2, but UI should not assume OCR is always present)
   
-- [ ] **Storage management**
-  - Storage quota per user
-  - Cleanup of deleted evidence files
-  - Efficient retrieval and caching
-  
-**Success:** User can upload photos as evidence → view them in timeline → include in exports
+**Success:** User can upload an image as evidence → app stores it securely in Supabase → user can view that image later from the evidence UI and, whether it’s OCR-backed or just a photo with an LLM description, associate it with relevant events.
 
 ### Priority 2: Evidence-Event Association
 **Connect evidence to timeline events for context**
@@ -107,6 +106,14 @@
   - Visual indicators for linked items
   
 **Success:** User can link a photo to multiple events → see photo when viewing event → see events when viewing photo
+
+### Priority 2.5: Evidence Entry UX
+**Make adding evidence fast and flexible, with AI as an enhancement**
+
+- [ ] **Evidence capture workflow**
+  - Default to a quick “Save evidence” flow after upload (with or without description)
+  - Offer AI extraction/description as an optional follow-up action, not the only primary button
+  - Support future expansion for batch uploads and mixed media (photos, docs, screenshots)
 
 ---
 
@@ -258,9 +265,9 @@ Every day without paying customers is a day without validation. Launch lean, ite
 ## Next 48 Hours Action Items
 
 1. **Today:**
-   - [ ] Diagnose production API issue
-   - [ ] Check all Vercel env variables
-   - [ ] Try minimal fix to get API working
+   - [x] Diagnose production API issue (auth pattern + `tslib` runtime on Vercel)
+   - [x] Check all Vercel env variables
+   - [x] Try minimal fix to get API working
 
 2. **Tomorrow:**
    - [ ] Test voice flow in production

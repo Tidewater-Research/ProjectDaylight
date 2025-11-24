@@ -23,7 +23,20 @@ interface EvidenceDetailResponse extends EvidenceItem {
   storagePath?: string
   mimeType?: string
   updatedAt: string
-  
+
+  // Signed URLs for file access
+  /**
+   * Short-lived URL for directly viewing an image in the browser.
+   * Present when mimeType starts with image/ and a storagePath exists.
+   */
+  imageUrl?: string
+
+  /**
+   * Short-lived URL for downloading the original file.
+   * Present when a storagePath exists, regardless of mimeType.
+   */
+  downloadUrl?: string
+
   // Related data
   relatedEvents?: Array<{
     id: string
@@ -32,7 +45,7 @@ interface EvidenceDetailResponse extends EvidenceItem {
     timestamp: string
     isPrimary: boolean
   }>
-  
+
   relatedCommunications?: Array<{
     id: string
     medium: string
@@ -49,7 +62,7 @@ function mapEvidenceToDetailResponse(
   relatedCommunications: CommunicationRow[]
 ): EvidenceDetailResponse {
   const sourceType = mapSourceType(row.source_type)
-  
+
   const typeLabels: Record<string, string> = {
     text: 'Text message',
     email: 'Email communication',
@@ -58,11 +71,12 @@ function mapEvidenceToDetailResponse(
     recording: 'Recording',
     other: 'Evidence item'
   }
-  
-  const originalName = row.original_filename ||
+
+  const originalName =
+    row.original_filename ||
     typeLabels[sourceType] ||
     'Evidence item'
-  
+
   return {
     id: row.id,
     sourceType,
@@ -70,22 +84,22 @@ function mapEvidenceToDetailResponse(
     createdAt: row.created_at,
     summary: row.summary || '',
     tags: (row.tags ?? []) as string[],
-    
+
     // Additional fields
     storagePath: row.storage_path || undefined,
     mimeType: row.mime_type || undefined,
     updatedAt: row.updated_at,
-    
+
     // Related data
-    relatedEvents: relatedEvents.map(e => ({
+    relatedEvents: relatedEvents.map((e) => ({
       id: e.id,
       type: e.type,
       title: e.title || 'Untitled Event',
       timestamp: e.primary_timestamp || e.created_at,
       isPrimary: e.is_primary || false
     })),
-    
-    relatedCommunications: relatedCommunications.map(c => ({
+
+    relatedCommunications: relatedCommunications.map((c) => ({
       id: c.id,
       medium: c.medium,
       direction: c.direction,
@@ -147,6 +161,30 @@ export default eventHandler(async (event): Promise<EvidenceDetailResponse> => {
     })
   }
 
+  // Prepare signed URLs for the stored file (if any).
+  // We keep these short-lived and scoped to this evidence row only.
+  let imageUrl: string | undefined
+  let downloadUrl: string | undefined
+
+  if (evidenceRow.storage_path) {
+    const bucket = 'daylight-files'
+
+    const { data: signed, error: signedError } = await supabase.storage
+      .from(bucket)
+      .createSignedUrl(evidenceRow.storage_path, 60 * 15)
+
+    if (!signedError && signed?.signedUrl) {
+      downloadUrl = signed.signedUrl
+
+      if (evidenceRow.mime_type && evidenceRow.mime_type.startsWith('image/')) {
+        imageUrl = signed.signedUrl
+      }
+    } else if (signedError) {
+      // eslint-disable-next-line no-console
+      console.error('Failed to create signed URL for evidence file:', signedError)
+    }
+  }
+
   // Fetch all related data in parallel
   const [
     { data: eventEvidenceRows, error: eventEvidenceError },
@@ -184,9 +222,15 @@ export default eventHandler(async (event): Promise<EvidenceDetailResponse> => {
     is_primary: row.is_primary
   }))
 
-  return mapEvidenceToDetailResponse(
+  const base = mapEvidenceToDetailResponse(
     evidenceRow as EvidenceRow,
     relatedEvents,
     (communicationsRows || []) as CommunicationRow[]
   )
+
+  return {
+    ...base,
+    imageUrl,
+    downloadUrl
+  }
 })

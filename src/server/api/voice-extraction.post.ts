@@ -5,6 +5,19 @@ import { serverSupabaseServiceRole, serverSupabaseUser } from '#supabase/server'
 
 interface VoiceExtractionBody {
   transcript?: string
+  /**
+   * Optional, free-form description of when the events occurred.
+   * Examples: "yesterday at 6pm", "last Tuesday evening", "around Halloween".
+   * When provided, this should be treated as the primary reference for resolving
+   * event timestamps during extraction.
+   */
+  referenceTimeDescription?: string
+  /**
+   * Optional calendar date (YYYY-MM-DD) selected by the user for when the events occurred.
+   * When provided, this will be used as the base "recording" date for resolving relative
+   * phrases like "yesterday" or "this morning".
+   */
+  referenceDate?: string
 }
 
 // Define Zod schemas for structured extraction
@@ -78,6 +91,8 @@ export default defineEventHandler(async (event) => {
 
   const body = await readBody<VoiceExtractionBody>(event)
   const transcript = body?.transcript?.trim()
+  const referenceTimeDescription = body?.referenceTimeDescription?.trim() || null
+  const referenceDate = body?.referenceDate?.trim() || null
 
   if (!transcript) {
     throw createError({
@@ -87,7 +102,121 @@ export default defineEventHandler(async (event) => {
   }
 
   try {
-    const recordingTimestampIso = new Date().toISOString()
+    // Prepare a base timestamp for temporal reasoning. If the user selected a specific
+    // calendar date for these events, prefer that as the anchor; otherwise, use "now".
+    let recordingTimestampIso: string
+
+    if (referenceDate) {
+      const parsed = new Date(referenceDate)
+      if (!Number.isNaN(parsed.getTime())) {
+        // Use the user-selected date as the base recording timestamp.
+        recordingTimestampIso = parsed.toISOString()
+      } else {
+        recordingTimestampIso = new Date().toISOString()
+      }
+    } else {
+      recordingTimestampIso = new Date().toISOString()
+    }
+
+    const temporalGuidanceLines: string[] = [
+      `Assume the voice note was recorded at this timestamp (ISO-8601, server time): ${recordingTimestampIso}.`,
+      'Unless the user clearly specifies a different calendar date, assume their description refers to events occurring on the same calendar day as this recording timestamp.',
+      'When the user gives a time like "at 10am" or "around 3:30 PM", construct an ISO-8601 primary_timestamp using that time on the recording date. Set seconds to 0 and preserve the timezone from the recording timestamp.',
+      'For relative phrases like "this morning", "tonight", or "earlier today", choose a reasonable time on that same day and set timestamp_precision to "approximate".',
+      'If you cannot reasonably resolve a date or time, leave primary_timestamp as null and set timestamp_precision to "unknown".'
+    ]
+
+    if (referenceTimeDescription) {
+      temporalGuidanceLines.push(
+        '',
+        'The user also provided this description of when the events occurred relative to the calendar:',
+        `"${referenceTimeDescription}"`,
+        'Treat this description as the primary reference for resolving dates and times for the events you extract.',
+        'If there is any conflict between this description and assumptions from the recording timestamp, prefer the user-provided description.'
+      )
+    }
+
+    // Best-effort: load user and case context to give the model more precise guidance
+    // about who is speaking and what their legal matter is.
+    const supabase = await serverSupabaseServiceRole(event)
+
+    const authUser = await serverSupabaseUser(event)
+    const userId = authUser?.sub || authUser?.id || null
+
+    let userDisplayName: string | null =
+      // supabase auth user metadata may already include full_name
+      (authUser as any)?.user_metadata?.full_name ||
+      (authUser as any)?.full_name ||
+      (authUser as any)?.name ||
+      authUser?.email ||
+      null
+
+    if (userId) {
+      try {
+        const { data: profile } = await supabase
+          .from('profiles')
+          .select('full_name')
+          .eq('id', userId)
+          .maybeSingle()
+
+        if (profile?.full_name) {
+          userDisplayName = profile.full_name
+        }
+      } catch {
+        // Ignore profile lookup failures; we can fall back to a generic name.
+      }
+    }
+
+    let caseContextDescription =
+      'The speaker is involved in a family court / custody / divorce matter and is documenting events for legal purposes.'
+
+    if (userId) {
+      try {
+        const { data: caseRow } = await supabase
+          .from('cases')
+          .select('case_type, stage, your_role, opposing_party_name, goals_summary')
+          .eq('user_id', userId)
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .maybeSingle()
+
+        if (caseRow) {
+          const parts: string[] = []
+
+          if (caseRow.case_type) {
+            parts.push(`case type: ${caseRow.case_type}`)
+          }
+
+          if (caseRow.your_role) {
+            parts.push(`your role: ${caseRow.your_role}`)
+          }
+
+          if (caseRow.stage) {
+            parts.push(`stage: ${caseRow.stage}`)
+          }
+
+          if (caseRow.opposing_party_name) {
+            parts.push(`opposing party: ${caseRow.opposing_party_name}`)
+          }
+
+          if (caseRow.goals_summary) {
+            parts.push(`user goals: ${caseRow.goals_summary}`)
+          }
+
+          if (parts.length) {
+            caseContextDescription = `The speaker is involved in a family law matter with the following context: ${parts.join(
+              '; '
+            )}. They are using this voice note to document events for their case.`
+          }
+        }
+      } catch {
+        // Ignore case lookup failures; we can fall back to a generic description.
+      }
+    }
+
+    const speakerLine = userDisplayName
+      ? `The voice note speaker is ${userDisplayName}. When they say "I" or "me", they are referring to ${userDisplayName}.`
+      : 'The voice note speaker is the user. When they say "I" or "me", they are referring to the same person consistently.'
 
     const openai = new OpenAI({
       apiKey: config.openai.apiKey
@@ -118,11 +247,10 @@ export default defineEventHandler(async (event) => {
                 'Given a voice note transcript from a parent in a custody situation, you must extract factual, legally relevant information only.',
                 'Do not provide advice, opinions, or legal conclusions.',
                 '',
-                `Assume the voice note was recorded at this timestamp (ISO-8601, server time): ${recordingTimestampIso}.`,
-                'Unless the user clearly specifies a different calendar date, assume their description refers to events occurring on the same calendar day as this recording timestamp.',
-                'When the user gives a time like "at 10am" or "around 3:30 PM", construct an ISO-8601 primary_timestamp using that time on the recording date. Set seconds to 0 and preserve the timezone from the recording timestamp.',
-                'For relative phrases like "this morning", "tonight", or "earlier today", choose a reasonable time on that same day and set timestamp_precision to "approximate".',
-                'If you cannot reasonably resolve a date or time, leave primary_timestamp as null and set timestamp_precision to "unknown".',
+                speakerLine,
+                caseContextDescription,
+                '',
+                ...temporalGuidanceLines,
                 '',
                 'Rules:',
                 '- If a field is unknown or not mentioned, set it to null, an empty array, or "unknown" where appropriate.',
@@ -158,12 +286,7 @@ export default defineEventHandler(async (event) => {
     }
 
     // Persist extracted events (and related participants / evidence mentions) to Supabase.
-    const supabase = await serverSupabaseServiceRole(event)
-
-    // Resolve authenticated user from cookies/JWT (SSR and serverless safe)
-    const authUser = await serverSupabaseUser(event)
-    const userId = authUser?.sub || authUser?.id
-
+    // We already resolved `supabase` and `userId` above when building context.
     if (!userId) {
       throw createError({
         statusCode: 401,

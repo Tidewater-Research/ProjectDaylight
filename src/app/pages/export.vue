@@ -836,19 +836,6 @@ async function downloadPdf() {
                 {{ exportFocusOptions.find(option => option.value === exportFocus)?.description }}
               </p>
             </div>
-            
-            <!-- AI Summary option -->
-            <div class="pt-2">
-              <USwitch
-                v-model="includeAISummary"
-                label="Generate AI executive summary"
-                description="AI analyzes your timeline and evidence to highlight key patterns and important developments"
-                :ui="{ 
-                  wrapper: 'flex items-start',
-                  description: 'text-xs mt-1 text-muted' 
-                }"
-              />
-            </div>
           </div>
 
             <!-- Advanced options -->
@@ -912,45 +899,52 @@ async function downloadPdf() {
             </UCollapsible>
 
             <!-- Actions -->
-            <div class="pt-2 flex flex-col gap-3 border-t border-dashed border-default/60 md:flex-row md:items-center md:justify-between">
-              <div class="flex items-center gap-2 text-xs text-muted">
-                <UIcon
-                  v-if="summaryGenerating"
-                  name="i-lucide-sparkles"
-                  class="size-4 animate-pulse"
-                />
-                <UIcon
-                  v-else-if="isLoadingData"
-                  name="i-lucide-loader-2"
-                  class="size-4 animate-spin"
-                />
-                <span v-if="summaryGenerating">AI is analyzing your timeline and evidence...</span>
-                <span v-else-if="isLoadingData">Loading timeline and evidence…</span>
-                <span v-else>{{ includeAISummary ? 'Ready to generate export with AI summary.' : 'Ready to generate export.' }}</span>
-              </div>
+            <div class="pt-4 flex flex-col gap-3 border-t border-dashed border-default/60">
+              <div class="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                <div class="flex items-center gap-2 text-xs text-muted">
+                  <template v-if="summaryGenerating">
+                    <UIcon name="i-lucide-sparkles" class="size-4 animate-pulse text-primary" />
+                    <span>AI is analyzing your timeline and evidence...</span>
+                  </template>
+                  <template v-else-if="isLoadingData">
+                    <UIcon name="i-lucide-loader-2" class="size-4 animate-spin" />
+                    <span>Loading timeline and evidence…</span>
+                  </template>
+                  <template v-else>
+                    <UCheckbox
+                      v-model="includeAISummary"
+                      label="Include AI executive summary"
+                      :ui="{ label: 'text-xs text-muted' }"
+                    />
+                    <UTooltip text="AI analyzes your timeline and evidence to highlight key patterns">
+                      <UIcon name="i-lucide-info" class="size-3.5 text-muted/60" />
+                    </UTooltip>
+                  </template>
+                </div>
 
-              <div class="flex items-center justify-end gap-2">
-                <UButton
-                  color="neutral"
-                  variant="ghost"
-                  size="xs"
-                  :disabled="isLoadingData"
-                  @click="loadData"
-                >
-                  Refresh data
-                </UButton>
+                <div class="flex items-center gap-3">
+                  <UButton
+                    color="neutral"
+                    variant="ghost"
+                    size="sm"
+                    :disabled="isLoadingData"
+                    @click="loadData"
+                  >
+                    Refresh data
+                  </UButton>
 
-                <UButton
-                  color="primary"
-                  icon="i-lucide-file-text"
-                  :loading="generating || summaryGenerating"
-                  :disabled="isLoadingData"
-                  @click="generateMarkdown"
-                >
-                  <span v-if="summaryGenerating">Generating AI summary...</span>
-                  <span v-else-if="includeAISummary">Generate export with AI</span>
-                  <span v-else>Generate export</span>
-                </UButton>
+                  <UButton
+                    color="primary"
+                    variant="solid"
+                    icon="i-lucide-file-text"
+                    :loading="generating || summaryGenerating"
+                    :disabled="isLoadingData"
+                    @click="generateMarkdown"
+                  >
+                    <span v-if="summaryGenerating">Generating...</span>
+                    <span v-else>Generate export</span>
+                  </UButton>
+                </div>
               </div>
             </div>
           </div>

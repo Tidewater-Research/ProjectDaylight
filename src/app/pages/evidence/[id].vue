@@ -6,7 +6,11 @@ interface EvidenceDetailResponse extends EvidenceItem {
   storagePath?: string
   mimeType?: string
   updatedAt: string
-  
+
+  // Signed URLs for file access
+  imageUrl?: string
+  downloadUrl?: string
+
   // Related data
   relatedEvents?: Array<{
     id: string
@@ -15,7 +19,7 @@ interface EvidenceDetailResponse extends EvidenceItem {
     timestamp: string
     isPrimary: boolean
   }>
-  
+
   relatedCommunications?: Array<{
     id: string
     medium: string
@@ -65,6 +69,16 @@ const typeColors: Record<string, 'success' | 'error' | 'info' | 'warning' | 'neu
   legal: 'neutral'
 }
 
+const hasImage = computed(() => {
+  return Boolean(
+    data.value?.imageUrl &&
+    data.value?.mimeType &&
+    data.value.mimeType.startsWith('image/')
+  )
+})
+
+const hasFile = computed(() => Boolean(data.value?.downloadUrl))
+
 function formatDate(value: string) {
   return new Date(value).toLocaleString(undefined, {
     month: 'short',
@@ -103,11 +117,7 @@ function sourceIcon(type: EvidenceItem['sourceType']) {
 }
 
 // Check if the evidence can be previewed
-const canPreview = computed(() => {
-  if (!data.value?.storagePath || !data.value?.mimeType) return false
-  return data.value.mimeType.startsWith('image/') || 
-         data.value.mimeType === 'application/pdf'
-})
+const canPreview = computed(() => hasImage.value)
 </script>
 
 <template>
@@ -184,7 +194,37 @@ const canPreview = computed(() => {
                 </div>
                 <div>
                   <h1 class="text-xl font-semibold">{{ data.originalName }}</h1>
-                  <p class="text-sm text-muted">{{ sourceLabel(data.sourceType) }}</p>
+                  <p class="text-sm text-muted">
+                    {{ sourceLabel(data.sourceType) }}
+                  </p>
+                  <div class="mt-1 flex flex-wrap items-center gap-2">
+                    <UBadge
+                      v-if="hasImage"
+                      color="primary"
+                      variant="subtle"
+                      size="xs"
+                      class="inline-flex items-center gap-1"
+                    >
+                      <UIcon name="i-lucide-image" class="size-3.5" />
+                      Stored image
+                    </UBadge>
+                    <UBadge
+                      v-else-if="data.storagePath"
+                      color="neutral"
+                      variant="subtle"
+                      size="xs"
+                    >
+                      Stored file
+                    </UBadge>
+                    <UBadge
+                      v-else
+                      color="neutral"
+                      variant="outline"
+                      size="xs"
+                    >
+                      Text-only evidence
+                    </UBadge>
+                  </div>
                 </div>
               </div>
               <p class="text-sm text-muted">
@@ -210,7 +250,10 @@ const canPreview = computed(() => {
             </div>
 
             <!-- File Info -->
-            <div v-if="data.mimeType || data.storagePath" class="grid grid-cols-1 md:grid-cols-2 gap-4 p-4 rounded-lg bg-muted/5">
+            <div
+              v-if="data.mimeType || data.storagePath"
+              class="grid grid-cols-1 gap-4 p-4 rounded-lg bg-muted/5 md:grid-cols-2"
+            >
               <div v-if="data.mimeType">
                 <p class="text-xs text-muted">File Type</p>
                 <p class="text-sm font-mono">{{ data.mimeType }}</p>
@@ -221,24 +264,61 @@ const canPreview = computed(() => {
               </div>
             </div>
 
-            <!-- Preview Button -->
-            <div v-if="canPreview" class="flex gap-2">
-              <UButton
-                icon="i-lucide-eye"
-                color="primary"
-                variant="outline"
-                disabled
-              >
-                Preview (Coming Soon)
-              </UButton>
-              <UButton
-                icon="i-lucide-download"
-                color="neutral"
-                variant="ghost"
-                disabled
-              >
-                Download
-              </UButton>
+            <!-- Image preview + actions -->
+            <div v-if="hasImage || hasFile" class="flex flex-wrap items-start gap-4">
+              <UModal v-if="hasImage && data.imageUrl">
+                <div class="flex flex-col gap-2 max-w-xs">
+                  <button
+                    type="button"
+                    class="relative overflow-hidden rounded-lg border border-default bg-subtle/40 cursor-pointer"
+                  >
+                    <img
+                      :src="data.imageUrl"
+                      alt="Evidence image preview"
+                      class="h-40 w-full object-cover"
+                      loading="lazy"
+                    >
+                    <div class="absolute inset-x-0 bottom-0 flex items-center justify-between gap-2 px-3 py-2 text-xs text-white bg-gradient-to-t from-black/60 to-transparent">
+                      <span class="truncate">
+                        Click to view full size
+                      </span>
+                      <UIcon name="i-lucide-maximize-2" class="size-3.5" />
+                    </div>
+                  </button>
+
+                  <UButton
+                    v-if="hasImage && data.imageUrl"
+                    icon="i-lucide-eye"
+                    color="primary"
+                    variant="outline"
+                    label="View full image"
+                  />
+                </div>
+
+                <template #content>
+                  <div class="bg-black">
+                    <img
+                      :src="data.imageUrl"
+                      alt="Evidence image"
+                      class="w-full max-h-[80vh] object-contain"
+                    >
+                  </div>
+                </template>
+              </UModal>
+
+              <div class="flex flex-col gap-2">
+                <UButton
+                  v-if="hasFile && data.downloadUrl"
+                  icon="i-lucide-download"
+                  color="neutral"
+                  variant="ghost"
+                  :to="data.downloadUrl"
+                  external
+                  target="_blank"
+                >
+                  Download file
+                </UButton>
+              </div>
             </div>
           </div>
         </UCard>
@@ -346,4 +426,5 @@ const canPreview = computed(() => {
       </div>
     </template>
   </UDashboardPanel>
+
 </template>

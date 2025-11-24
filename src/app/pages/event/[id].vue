@@ -1,5 +1,8 @@
 <script setup lang="ts">
 import type { EventType } from '~/types'
+import type { Database } from '~/types/database.types'
+
+type WelfareImpact = Database['public']['Enums']['welfare_impact']
 
 interface EventDetailResponse {
   id: string
@@ -55,6 +58,16 @@ interface EventDetailResponse {
     summary: string
     sentAt?: string
   }>
+  
+  suggestedEvidence?: Array<{
+    id: string
+    evidenceType: string
+    evidenceStatus: string
+    description: string
+    fulfilledEvidenceId?: string
+    fulfilledAt?: string
+    dismissedAt?: string
+  }>
 }
 
 // Use SSR-aware useFetch with cookie-based auth
@@ -96,6 +109,15 @@ const typeColors: Record<EventType, 'success' | 'error' | 'info' | 'warning' | '
   legal: 'neutral'
 }
 
+const eventTypeOptions: { label: string; value: EventType }[] = [
+  { label: 'Positive parenting', value: 'positive' },
+  { label: 'Incident', value: 'incident' },
+  { label: 'Medical', value: 'medical' },
+  { label: 'School', value: 'school' },
+  { label: 'Communication', value: 'communication' },
+  { label: 'Legal / court', value: 'legal' }
+]
+
 function formatDate(value: string) {
   return new Date(value).toLocaleString(undefined, {
     month: 'short',
@@ -134,6 +156,120 @@ const evidenceStatusColors: Record<string, 'success' | 'warning' | 'error'> = {
   need_to_get: 'warning',
   need_to_create: 'error'
 }
+
+const welfareImpactOptions: { label: string; value: WelfareImpact }[] = [
+  { label: 'None / neutral', value: 'none' },
+  { label: 'Minor impact', value: 'minor' },
+  { label: 'Moderate impact', value: 'moderate' },
+  { label: 'Significant impact', value: 'significant' },
+  { label: 'Positive impact', value: 'positive' },
+  { label: 'Unknown / not sure', value: 'unknown' }
+]
+
+const isSaving = ref(false)
+
+const editableTimestamp = computed({
+  get() {
+    if (!data.value?.timestamp) return ''
+    const d = new Date(data.value.timestamp)
+    const iso = d.toISOString()
+    return iso.slice(0, 16)
+  },
+  set(value: string) {
+    if (!data.value) return
+    if (!value) {
+      data.value.timestamp = data.value.createdAt
+      return
+    }
+    // Let the server coerce/validate this ISO-like string
+    data.value.timestamp = new Date(value).toISOString()
+  }
+})
+
+const editableLocation = computed({
+  get() {
+    return data.value?.location || ''
+  },
+  set(value: string) {
+    if (!data.value) return
+    data.value.location = value || undefined
+  }
+})
+
+const editableTitle = computed({
+  get() {
+    return data.value?.title || ''
+  },
+  set(value: string) {
+    if (!data.value) return
+    data.value.title = value || ''
+  }
+})
+
+const editableDescription = computed({
+  get() {
+    return data.value?.description || ''
+  },
+  set(value: string) {
+    if (!data.value) return
+    data.value.description = value || ''
+  }
+})
+
+const editableType = computed<EventType>({
+  get() {
+    return (data.value?.type as EventType | undefined) ?? 'incident'
+  },
+  set(value: EventType) {
+    if (!data.value) return
+    data.value.type = value
+  }
+})
+
+const editableWelfareImpact = computed<WelfareImpact>({
+  get() {
+    // Default to 'unknown' so the select always has a value
+    return (data.value?.welfareImpact as WelfareImpact | undefined) ?? 'unknown'
+  },
+  set(value: WelfareImpact) {
+    if (!data.value) return
+    data.value.welfareImpact = value
+  }
+})
+
+async function saveEdits(close?: () => void) {
+  if (!data.value) return
+  isSaving.value = true
+
+  try {
+    await $fetch(`/api/event/${eventId.value}`, {
+      method: 'PATCH',
+      body: {
+        type: data.value.type,
+        title: data.value.title,
+        description: data.value.description,
+        location: data.value.location ?? null,
+        timestamp: data.value.timestamp,
+        timestampPrecision: data.value.timestampPrecision ?? null,
+        durationMinutes: data.value.durationMinutes ?? null,
+        childInvolved: data.value.childInvolved ?? null,
+        agreementViolation: data.value.agreementViolation ?? null,
+        safetyConcern: data.value.safetyConcern ?? null,
+        welfareImpact: data.value.welfareImpact ?? null
+      }
+    })
+
+    await refresh()
+    if (close) {
+      close()
+    }
+  } catch (err) {
+    // eslint-disable-next-line no-console
+    console.error('Failed to save event edits:', err)
+  } finally {
+    isSaving.value = false
+  }
+}
 </script>
 
 <template>
@@ -145,14 +281,186 @@ const evidenceStatusColors: Record<string, 'success' | 'warning' | 'error'> = {
         </template>
 
         <template #right>
-          <UButton
-            icon="i-lucide-arrow-left"
-            color="neutral"
-            variant="ghost"
-            to="/timeline"
-          >
-            Back to Timeline
-          </UButton>
+          <div class="flex items-center gap-2">
+            <UModal
+              v-if="status === 'success' && data"
+              title="Edit event"
+              :ui="{ footer: 'justify-end' }"
+            >
+              <UButton
+                icon="i-lucide-pencil"
+                color="primary"
+                variant="soft"
+                size="sm"
+              >
+                Edit
+              </UButton>
+
+              <template #body>
+                <div class="space-y-4">
+                  <div class="flex items-center gap-2 mb-2">
+                    <UBadge
+                      :color="typeColors[data.type]"
+                      variant="subtle"
+                      size="xs"
+                      class="capitalize"
+                    >
+                      {{ data.type }}
+                    </UBadge>
+                    <span class="text-xs text-muted">
+                      Update the core details of this event.
+                    </span>
+                  </div>
+
+                  <UFormField
+                    label="Event type"
+                    name="type"
+                  >
+                    <div class="w-full">
+                      <USelect
+                        v-model="editableType"
+                        :items="eventTypeOptions"
+                        option-attribute="label"
+                        value-attribute="value"
+                        class="w-full"
+                      />
+                    </div>
+                  </UFormField>
+
+                  <UFormField
+                    label="Title"
+                    name="title"
+                  >
+                    <div class="w-full">
+                      <UInput
+                        v-model="editableTitle"
+                        color="neutral"
+                        variant="outline"
+                        class="w-full"
+                      />
+                    </div>
+                  </UFormField>
+
+                  <UFormField
+                    label="Description"
+                    name="description"
+                  >
+                    <div class="w-full">
+                      <UTextarea
+                        v-model="editableDescription"
+                        :rows="4"
+                        color="neutral"
+                        variant="outline"
+                        class="w-full"
+                      />
+                    </div>
+                  </UFormField>
+
+                  <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <UFormField
+                      label="Date & time"
+                      name="timestamp"
+                    >
+                      <div class="w-full">
+                        <UInput
+                          v-model="editableTimestamp"
+                          type="datetime-local"
+                          color="neutral"
+                          variant="outline"
+                          class="w-full"
+                        />
+                      </div>
+                    </UFormField>
+
+                    <UFormField
+                      label="Location"
+                      name="location"
+                    >
+                      <div class="w-full">
+                        <UInput
+                          v-model="editableLocation"
+                          color="neutral"
+                          variant="outline"
+                          class="w-full"
+                        />
+                      </div>
+                    </UFormField>
+                  </div>
+
+                  <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div class="space-y-3">
+                      <p class="text-xs font-medium text-muted uppercase tracking-wide">
+                        Impact flags
+                      </p>
+                      <div class="flex flex-col gap-2">
+                        <UFormField name="childInvolved">
+                          <USwitch
+                            v-model="data.childInvolved"
+                            label="Child involved"
+                          />
+                        </UFormField>
+                        <UFormField name="agreementViolation">
+                          <USwitch
+                            v-model="data.agreementViolation"
+                            label="Agreement violation"
+                          />
+                        </UFormField>
+                        <UFormField name="safetyConcern">
+                          <USwitch
+                            v-model="data.safetyConcern"
+                            label="Safety concern"
+                          />
+                        </UFormField>
+                      </div>
+                    </div>
+
+                    <UFormField
+                      label="Overall welfare impact"
+                      name="welfareImpact"
+                      description="How does this event affect the child’s wellbeing overall?"
+                    >
+                      <div class="w-full">
+                        <USelect
+                          v-model="editableWelfareImpact"
+                          :items="welfareImpactOptions"
+                          option-attribute="label"
+                          value-attribute="value"
+                          class="w-full"
+                        />
+                      </div>
+                    </UFormField>
+                  </div>
+                </div>
+              </template>
+
+              <template #footer="{ close }">
+                <UButton
+                  color="neutral"
+                  variant="ghost"
+                  @click="close"
+                >
+                  Cancel
+                </UButton>
+                <UButton
+                  color="primary"
+                  variant="solid"
+                  :loading="isSaving"
+                  @click="saveEdits(close)"
+                >
+                  Save changes
+                </UButton>
+              </template>
+            </UModal>
+
+            <UButton
+              icon="i-lucide-arrow-left"
+              color="neutral"
+              variant="ghost"
+              to="/timeline"
+            >
+              Back to Timeline
+            </UButton>
+          </div>
         </template>
       </UDashboardNavbar>
     </template>
@@ -174,6 +482,57 @@ const evidenceStatusColors: Record<string, 'success' | 'warning' | 'error'> = {
               <USkeleton class="h-16 w-full" />
               <USkeleton class="h-16 w-full" />
               <USkeleton class="h-16 w-full" />
+            </div>
+          </div>
+        </UCard>
+
+        <!-- Suggested Evidence -->
+        <UCard v-if="data.suggestedEvidence?.length">
+          <template #header>
+            <div class="flex items-center justify-between">
+              <h2 class="text-lg font-medium">Suggested Evidence</h2>
+              <p class="text-xs text-muted">
+                AI-generated ideas for what to gather or attach.
+              </p>
+            </div>
+          </template>
+
+          <div class="space-y-2">
+            <div
+              v-for="suggestion in data.suggestedEvidence"
+              :key="suggestion.id"
+              class="flex items-start gap-3 p-3 rounded-lg bg-muted/5"
+            >
+              <div class="flex flex-col items-start gap-1">
+                <UBadge
+                  color="neutral"
+                  variant="subtle"
+                  size="xs"
+                  class="capitalize"
+                >
+                  {{ suggestion.evidenceType }}
+                </UBadge>
+                <UBadge
+                  :color="evidenceStatusColors[suggestion.evidenceStatus] || 'neutral'"
+                  variant="outline"
+                  size="xs"
+                >
+                  {{ suggestion.evidenceStatus.replace(/_/g, ' ') }}
+                </UBadge>
+              </div>
+
+              <div class="flex-1 space-y-1">
+                <p class="text-sm">
+                  {{ suggestion.description }}
+                </p>
+
+                <p v-if="suggestion.fulfilledAt" class="text-xs text-success">
+                  Fulfilled {{ formatShortDate(suggestion.fulfilledAt) }}
+                </p>
+                <p v-else-if="suggestion.dismissedAt" class="text-xs text-muted">
+                  Dismissed {{ formatShortDate(suggestion.dismissedAt) }}
+                </p>
+              </div>
             </div>
           </div>
         </UCard>

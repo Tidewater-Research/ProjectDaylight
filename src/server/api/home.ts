@@ -108,19 +108,27 @@ export default eventHandler(async (event): Promise<HomeResponse> => {
     let nextCourtDate: string | undefined
 
     for (const row of events) {
-      const tsStr = (row.primary_timestamp as string | null) ?? (row.created_at as string)
-      const ts = new Date(tsStr)
+      // Use primary_timestamp for the event's actual occurrence time
+      const eventTimestampStr = (row.primary_timestamp as string | null) ?? (row.created_at as string)
+      const eventTimestamp = new Date(eventTimestampStr)
+      
+      // Use created_at for when the event was captured
+      const capturedAtStr = row.created_at as string
+      const capturedAt = new Date(capturedAtStr)
 
-      if (!Number.isNaN(ts.getTime())) {
-        if (!lastCaptureAt || ts > new Date(lastCaptureAt)) {
-          lastCaptureAt = ts.toISOString()
+      if (!Number.isNaN(eventTimestamp.getTime())) {
+        // Track the most recent capture time
+        if (!lastCaptureAt || capturedAt > new Date(lastCaptureAt)) {
+          lastCaptureAt = capturedAt.toISOString()
         }
 
-        if (ts >= startOfToday) {
+        // Count events CAPTURED today (use created_at, not primary_timestamp)
+        if (capturedAt >= startOfToday) {
           todayEvents++
         }
 
-        if (ts >= weekAgo) {
+        // For weekly stats, use the event's actual timestamp
+        if (eventTimestamp >= weekAgo) {
           if (row.type === 'incident') {
             incidentsThisWeek++
           } else if (row.type === 'positive') {
@@ -128,9 +136,10 @@ export default eventHandler(async (event): Promise<HomeResponse> => {
           }
         }
 
-        if (row.type === 'legal' && ts >= now) {
-          if (!nextCourtDate || ts < new Date(nextCourtDate)) {
-            nextCourtDate = ts.toISOString()
+        // For court dates, use the event's actual timestamp
+        if (row.type === 'legal' && eventTimestamp >= now) {
+          if (!nextCourtDate || eventTimestamp < new Date(nextCourtDate)) {
+            nextCourtDate = eventTimestamp.toISOString()
           }
         }
       }
