@@ -313,7 +313,7 @@ onUnmounted(() => {
           <!-- Main headline -->
           <h1 class="max-w-3xl text-5xl font-bold tracking-tight sm:text-6xl lg:text-7xl">
             <span class="text-primary">Talk. Vent.</span>
-            <span class="block text-muted">We handle the rest.</span>
+            <span class="block text-muted">Daylight handles the rest.</span>
           </h1>
 
           <!-- Subheadline -->

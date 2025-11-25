@@ -622,12 +622,14 @@ async function downloadPdf() {
       doc.text('3. Evidence index', margin, cursorY)
       cursorY += 20
 
-      if (!evidence.value.length) {
+      const evidenceItems = (evidenceData.value || []) as EvidenceItem[]
+
+      if (!evidenceItems.length) {
         doc.setFont('helvetica', 'italic')
         doc.setFontSize(10)
         doc.text('No evidence items found for this export.', margin, cursorY)
       } else {
-        evidence.value.forEach((item, index) => {
+        evidenceItems.forEach((item, index) => {
           // Calc height
           const summaryLines = item.summary ? doc.splitTextToSize(item.summary, contentWidth - 15).length : 0
           const metaHeight = item.tags?.length ? 14 : 0
