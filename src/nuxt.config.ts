@@ -15,6 +15,78 @@ export default defineNuxtConfig({
 
   css: ['~/assets/css/main.css'],
 
+  app: {
+    head: {
+      htmlAttrs: {
+        lang: 'en'
+      },
+      titleTemplate: '%s | Daylight',
+      link: [
+        { rel: 'icon', type: 'image/x-icon', href: '/favicon.ico' },
+        { rel: 'icon', type: 'image/svg+xml', href: '/favicon.svg' },
+        { rel: 'icon', type: 'image/png', sizes: '96x96', href: '/favicon-96x96.png' },
+        { rel: 'apple-touch-icon', sizes: '180x180', href: '/apple-touch-icon.png' },
+        { rel: 'manifest', href: '/site.webmanifest' }
+      ],
+      meta: [
+        // Basic SEO
+        { name: 'theme-color', content: '#ffffff' },
+        { name: 'description', content: 'Stop carrying custody documentation in your head. Daylight turns voice notes into organized timelines your lawyer can actually use.' },
+        { name: 'author', content: 'Daylight' },
+        { name: 'robots', content: 'index, follow' },
+        { name: 'keywords', content: 'custody documentation, family court, evidence management, legal timeline, co-parenting, voice notes, court-ready documentation' },
+
+        // Open Graph
+        { property: 'og:type', content: 'website' },
+        { property: 'og:site_name', content: 'Daylight' },
+        { property: 'og:title', content: 'Daylight – Just talk. We handle the rest.' },
+        { property: 'og:description', content: 'Stop carrying custody documentation in your head. Daylight turns voice notes into organized timelines your lawyer can actually use.' },
+        { property: 'og:locale', content: 'en_US' },
+
+        // Twitter Card
+        { name: 'twitter:card', content: 'summary_large_image' },
+        { name: 'twitter:title', content: 'Daylight – Just talk. We handle the rest.' },
+        { name: 'twitter:description', content: 'Stop carrying custody documentation in your head. Daylight turns voice notes into organized timelines your lawyer can actually use.' },
+
+        // App-specific
+        { name: 'application-name', content: 'Daylight' },
+        { name: 'apple-mobile-web-app-title', content: 'Daylight' },
+        { name: 'apple-mobile-web-app-capable', content: 'yes' },
+        { name: 'apple-mobile-web-app-status-bar-style', content: 'default' },
+        { name: 'mobile-web-app-capable', content: 'yes' },
+        { name: 'format-detection', content: 'telephone=no' }
+      ],
+      script: [
+        // Schema.org structured data
+        {
+          type: 'application/ld+json',
+          innerHTML: JSON.stringify({
+            '@context': 'https://schema.org',
+            '@type': 'SoftwareApplication',
+            'name': 'Daylight',
+            'applicationCategory': 'LegalApplication',
+            'operatingSystem': 'Web',
+            'description': 'AI-powered evidence and timeline platform for parents navigating family court. Transform voice notes and screenshots into court-ready documentation.',
+            'offers': {
+              '@type': 'Offer',
+              'price': '0',
+              'priceCurrency': 'USD',
+              'description': 'Free trial available'
+            },
+            'featureList': [
+              'Voice note transcription',
+              'Screenshot OCR and parsing',
+              'Automatic timeline generation',
+              'Court-ready PDF exports',
+              'Evidence organization',
+              'Pattern detection'
+            ]
+          })
+        }
+      ]
+    }
+  },
+
   // Private runtime configuration (only available on the server)
   runtimeConfig: {
     openai: {
