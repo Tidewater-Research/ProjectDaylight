@@ -8,9 +8,11 @@ const appName = 'Project Daylight'
     <div
       class="hidden md:flex flex-1 flex-col justify-between border-default bg-elevated/40 px-10 py-8 rounded-none"
     >
-      <NuxtLink to="/" class="flex items-center gap-2 text-sm font-semibold text-highlighted hover:opacity-80 transition">
-        <span class="inline-flex size-5 rounded-sm bg-primary" />
-        <span>Project Daylight</span>
+      <NuxtLink to="/" class="flex items-center gap-2.5">
+        <span class="inline-flex size-7 rounded-md bg-gradient-to-br from-primary/80 to-primary shadow-sm" />
+        <span class="text-lg font-semibold tracking-tight text-highlighted">
+          Daylight
+        </span>
       </NuxtLink>
 
       <p class="max-w-sm text-sm text-muted leading-relaxed">

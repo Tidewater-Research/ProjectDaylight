@@ -1,145 +1,984 @@
 <script setup lang="ts">
+import { ref, onMounted, onUnmounted } from 'vue'
+
 definePageMeta({
   layout: 'landing'
 })
 
-const heroTitle = 'Turn chaos into court‑ready clarity'
-const heroDescription = 'When life gets overwhelming, Daylight helps you capture, organize, and document everything—so you’re prepared for whatever comes next.'
+useSeoMeta({
+  title: 'Daylight – Talk. Vent. We handle the rest.',
+  description: 'Stop carrying custody documentation in your head. Daylight turns voice notes into organized timelines your lawyer can actually use.',
+  ogTitle: 'Daylight – Talk. Vent. We handle the rest.',
+  ogDescription: 'Stop carrying custody documentation in your head. Daylight turns voice notes into organized timelines your lawyer can actually use.'
+})
 
-const heroLinks = [
+const steps = [
   {
-    label: 'Start documenting',
-    icon: 'i-lucide-arrow-right',
-    color: 'primary',
-    to: '/capture'
+    number: '01',
+    title: 'Talk into your phone',
+    description: 'Record what happened, when it happened. No formatting, no organizing—just talk.'
   },
   {
-    label: 'View demo',
-    color: 'neutral',
-    variant: 'ghost' as const,
-    to: '/home'
+    number: '02',
+    title: 'We transcribe and extract',
+    description: 'AI turns your voice into timestamped events. Names, dates, and details—all captured.'
+  },
+  {
+    number: '03',
+    title: 'Export when needed',
+    description: 'Your lawyer gets a clean timeline. No shoeboxes of screenshots. Just what they need.'
   }
 ]
 
-const features = [
+const capabilities = [
   {
-    icon: 'i-lucide-mic',
-    title: 'Voice capture',
-    description: 'Record incidents as they happen. AI transcribes and timestamps everything automatically.'
+    icon: 'i-lucide-scan-text',
+    title: 'AI reads your screenshots',
+    description: 'Upload a text screenshot. We OCR it, extract every message, and identify who said what.'
   },
   {
-    icon: 'i-lucide-clock',
-    title: 'Timeline view',
-    description: 'See everything in chronological order. Perfect for legal proceedings and therapy sessions.'
+    icon: 'i-lucide-alert-triangle',
+    title: 'Flags what matters',
+    description: 'Broken promises, safety concerns, missed handoffs—AI detects patterns you might miss.'
   },
   {
-    icon: 'i-lucide-folder-open',
-    title: 'Evidence vault',
-    description: 'Store screenshots, emails, and documents securely. Everything backed up and organized.'
-  },
-  {
-    icon: 'i-lucide-sparkles',
-    title: 'AI summaries',
-    description: 'Generate clear, factual summaries of events for attorneys, therapists, or support teams.'
-  },
-  {
-    icon: 'i-lucide-file-text',
-    title: 'Legal exports',
-    description: 'Export everything as PDFs with proper formatting for court submissions and legal teams.'
-  },
-  {
-    icon: 'i-lucide-shield',
-    title: 'Private & secure',
-    description: 'Your data is encrypted and never shared. You control who sees what, always.'
+    icon: 'i-lucide-link',
+    title: 'Links to your timeline',
+    description: 'Every screenshot becomes a searchable event with dates, participants, and context.'
   }
-] as const
+]
 
-const cta = {
-  title: 'Start protecting yourself today',
-  description: 'Free to try. No credit card required.',
-  links: [
+// Evidence demo mock data
+const evidenceScreenshot = {
+  filename: 'text_marcus_nov23.png',
+  uploadTime: '3 seconds ago'
+}
+
+const aiExtractionSteps = ref([
+  {
+    visible: false,
+    icon: 'i-lucide-scan',
+    label: 'Reading screenshot...',
+    status: 'processing',
+    detail: null
+  },
+  {
+    visible: false,
+    icon: 'i-lucide-type',
+    label: 'Text extracted',
+    status: 'complete',
+    detail: '4 messages found'
+  },
+  {
+    visible: false,
+    icon: 'i-lucide-users',
+    label: 'Participants identified',
+    status: 'complete',
+    detail: 'Marcus → You'
+  },
+  {
+    visible: false,
+    icon: 'i-lucide-alert-circle',
+    label: 'Concern detected',
+    status: 'flagged',
+    detail: 'Possible custody schedule violation'
+  }
+])
+
+const extractedEvidence = ref({
+  visible: false,
+  summary: 'Text exchange regarding late pickup. Marcus claims traffic delay, contradicted by user\'s observation.',
+  tags: ['custody', 'late-pickup', 'text-message', 'schedule-violation'],
+  timeline_event: {
+    type: 'communication',
+    title: 'Schedule change dispute',
+    timestamp: 'Nov 23, 6:15 PM'
+  },
+  flags: {
+    agreement_violation: true,
+    child_involved: true
+  }
+})
+
+let evidenceAnimationTimeouts: ReturnType<typeof setTimeout>[] = []
+
+// Animate evidence extraction steps
+const startEvidenceAnimation = () => {
+  // Reset
+  aiExtractionSteps.value.forEach(s => s.visible = false)
+  extractedEvidence.value.visible = false
+  
+  aiExtractionSteps.value.forEach((_, index) => {
+    const timeout = setTimeout(() => {
+      const step = aiExtractionSteps.value[index]
+      if (step) step.visible = true
+    }, 800 + (index * 600))
+    evidenceAnimationTimeouts.push(timeout)
+  })
+  
+  // Show final result
+  const finalTimeout = setTimeout(() => {
+    extractedEvidence.value.visible = true
+  }, 800 + (aiExtractionSteps.value.length * 600) + 400)
+  evidenceAnimationTimeouts.push(finalTimeout)
+}
+
+// Start animation on mount (after voice animation completes)
+const initEvidenceAnimation = () => {
+  setTimeout(() => {
+    startEvidenceAnimation()
+  }, 5000) // Start after voice demo completes
+}
+
+// Court-ready document mock data
+const documentData = {
+  caseName: 'Anderson vs. Taylor',
+  court: 'Fairfax County Family Court',
+  generatedDate: '11/24/2024, 3:45:22 PM',
+  overview: {
+    goal: 'My primary focus is ensuring consistent care and routine for Emma. I\'ve maintained detailed records to demonstrate my active involvement in her education, healthcare, and daily activities.',
+    children: 'Emma Anderson, 7 years old, currently in 2nd grade at Lincoln Elementary',
+    concerns: ['Inconsistent pickup times', 'Missed medical appointments', 'Communication gaps regarding schedule changes']
+  },
+  events: [
     {
-      label: 'Get started free',
-      icon: 'i-lucide-arrow-right',
-      color: 'primary',
-      to: '/auth/signup'
+      date: 'Nov 23, 05:30 PM',
+      title: 'Late pickup for weekend visitation',
+      category: 'Incident',
+      categoryColor: 'error',
+      description: 'Other parent arrived 2.5 hours late for scheduled 3:00 PM pickup. Child waited with packed bag, became distressed asking "Is daddy coming?" No advance notice provided.',
+      participants: ['self', 'child', 'other parent']
+    },
+    {
+      date: 'Nov 22, 02:15 PM',
+      title: 'School conference attended',
+      category: 'Positive parenting',
+      categoryColor: 'success',
+      description: 'Met with teacher Ms. Rodriguez to discuss Emma\'s progress. Teacher noted significant improvement in reading comprehension. Scheduled follow-up for December.',
+      participants: ['self', 'Ms. Rodriguez (teacher)', 'child present']
+    },
+    {
+      date: 'Nov 21, 09:00 AM',
+      title: 'Dental appointment completed',
+      category: 'Medical',
+      categoryColor: 'info',
+      description: 'Regular checkup at Dr. Chen\'s office. No cavities found. Next cleaning scheduled for May 2025. Other parent was notified but did not attend.',
+      participants: ['self', 'child', 'Dr. Chen']
+    },
+    {
+      date: 'Nov 20, 07:45 PM',
+      title: 'Schedule change request via text',
+      category: 'Communication',
+      categoryColor: 'warning',
+      description: 'Received text requesting to move weekend pickup from Friday to Saturday, citing work obligation. Requested documentation of conflict per court order. No response received.',
+      participants: ['self', 'other parent']
     }
   ]
-} as const
+}
 
-useSeoMeta({
-  title: 'Daylight – Turn chaos into court‑ready clarity',
-  description: 'Project Daylight is an AI-powered evidence and timeline platform that transforms exhausted scribbles into court‑ready documentation for custody and family court.',
-  ogTitle: 'Daylight – Turn chaos into court‑ready clarity',
-  ogDescription: 'Transform exhausted scribbles into court‑ready evidence.'
+// Mock data for voice-to-timeline demo
+const voiceTranscript = "So yesterday Marcus was supposed to pick up Emma at 5pm for his weekend visitation, but he didn't show up until almost 7:30. Emma was really upset, she'd been waiting by the window. He texted me at 6:15 saying traffic was bad but I checked Google Maps and there wasn't any traffic. This is the third time this month."
+
+const extractedEvents = ref([
+  { 
+    visible: false,
+    time: 'Nov 23, 5:00 PM', 
+    type: 'incident',
+    title: 'Missed scheduled pickup', 
+    detail: 'Marcus failed to arrive at scheduled 5:00 PM pickup time',
+    color: 'error'
+  },
+  { 
+    visible: false,
+    time: 'Nov 23, 6:15 PM', 
+    type: 'communication',
+    title: 'Text received', 
+    detail: '"Traffic was bad" - contradicts traffic data',
+    color: 'warning'
+  },
+  { 
+    visible: false,
+    time: 'Nov 23, 7:30 PM', 
+    type: 'incident',
+    title: 'Late arrival (2.5 hrs)', 
+    detail: 'Actual pickup occurred, child was distressed',
+    color: 'error'
+  },
+  { 
+    visible: false,
+    time: 'Pattern detected',
+    type: 'insight',
+    title: '3rd late pickup this month', 
+    detail: 'Recurring pattern identified for Nov 2024',
+    color: 'info'
+  }
+])
+
+// Timeline mock data
+const timelineEvents = [
+  {
+    date: 'Nov 24',
+    time: '9:15 AM',
+    type: 'positive',
+    icon: 'i-lucide-heart',
+    title: 'Weekend activity',
+    description: 'Emma came home happy, showed me artwork from dad\'s house',
+    evidence: 2
+  },
+  {
+    date: 'Nov 23',
+    time: '7:30 PM',
+    type: 'incident',
+    icon: 'i-lucide-alert-circle',
+    title: 'Late pickup',
+    description: '2.5 hours late for scheduled visitation',
+    evidence: 3
+  },
+  {
+    date: 'Nov 21',
+    time: '3:45 PM',
+    type: 'medical',
+    icon: 'i-lucide-stethoscope',
+    title: 'Pediatrician visit',
+    description: 'Annual checkup - all good, updated vaccination',
+    evidence: 1
+  },
+  {
+    date: 'Nov 19',
+    time: '6:00 PM',
+    type: 'school',
+    icon: 'i-lucide-graduation-cap',
+    title: 'Parent-teacher conference',
+    description: 'Emma doing well in reading, needs math support',
+    evidence: 2
+  }
+]
+
+const typeColors: Record<string, string> = {
+  positive: 'success',
+  incident: 'error',
+  medical: 'info',
+  school: 'warning'
+}
+
+// Animation for extracted events
+const waveformBars = ref<number[]>([])
+const isRecording = ref(true)
+let animationInterval: ReturnType<typeof setInterval> | null = null
+let eventRevealTimeout: ReturnType<typeof setTimeout>[] = []
+
+onMounted(() => {
+  // Generate random waveform bars
+  waveformBars.value = Array.from({ length: 40 }, () => Math.random() * 100)
+  
+  // Animate waveform
+  animationInterval = setInterval(() => {
+    if (isRecording.value) {
+      waveformBars.value = waveformBars.value.map(() => 20 + Math.random() * 80)
+    }
+  }, 150)
+
+  // Reveal events one by one
+  extractedEvents.value.forEach((_, index) => {
+    const timeout = setTimeout(() => {
+      const event = extractedEvents.value[index]
+      if (event) event.visible = true
+    }, 1500 + (index * 800))
+    eventRevealTimeout.push(timeout)
+  })
+  
+  // Start evidence animation
+  initEvidenceAnimation()
+})
+
+onUnmounted(() => {
+  if (animationInterval) clearInterval(animationInterval)
+  eventRevealTimeout.forEach(t => clearTimeout(t))
+  evidenceAnimationTimeouts.forEach(t => clearTimeout(t))
 })
 </script>
 
 <template>
-  <div>
-    <UPageHero
-      :title="heroTitle"
-      :description="heroDescription"
-      :links="heroLinks"
-      align="center"
-    >
-      <template #top>
-        <UBadge color="primary" variant="soft">
-          Court‑first journaling for chaotic seasons
-        </UBadge>
-      </template>
+  <div class="relative">
+    <!-- Hero Section -->
+    <section class="relative overflow-hidden">
+      <!-- Subtle gradient background -->
+      <div class="absolute inset-0 bg-gradient-to-b from-muted via-default to-default" />
 
-      <template #links>
-        <div class="flex flex-col items-center gap-3 sm:flex-row">
-          <UButton
-            v-for="(link, index) in heroLinks"
-            :key="index"
-            v-bind="link"
-            size="lg"
-          />
+      <!-- Decorative grid pattern -->
+      <div class="absolute inset-0 bg-[linear-gradient(to_right,var(--ui-border-muted)_1px,transparent_1px),linear-gradient(to_bottom,var(--ui-border-muted)_1px,transparent_1px)] bg-[size:14px_24px] [mask-image:radial-gradient(ellipse_80%_50%_at_50%_0%,#000_70%,transparent_110%)]" />
+
+      <UContainer class="relative">
+        <div class="flex min-h-[85vh] flex-col items-center justify-center py-24 text-center">
+          <!-- Main headline -->
+          <h1 class="max-w-3xl text-5xl font-bold tracking-tight sm:text-6xl lg:text-7xl">
+            <span class="text-primary">Talk. Vent.</span>
+            <span class="block text-muted">We handle the rest.</span>
+          </h1>
+
+          <!-- Subheadline -->
+          <p class="mt-8 max-w-xl text-lg leading-relaxed text-muted">
+            When you're going through custody proceedings, the last thing you need is another task. Daylight turns voice notes into organized timelines—so you can focus on what matters.
+          </p>
+
+          <!-- CTA buttons -->
+          <div class="mt-10 flex flex-col gap-4 sm:flex-row sm:gap-6">
+            <NuxtLink to="/auth/signup">
+              <UButton
+                size="xl"
+                color="primary"
+                class="px-8"
+              >
+                Start documenting
+                <template #trailing>
+                  <UIcon name="i-lucide-arrow-right" class="size-4" />
+                </template>
+              </UButton>
+            </NuxtLink>
+            <NuxtLink to="/home">
+              <UButton
+                size="xl"
+                color="neutral"
+                variant="outline"
+                class="px-8"
+              >
+                See how it works
+              </UButton>
+            </NuxtLink>
+          </div>
+
+          <!-- Trust indicator -->
+          <p class="mt-16 text-sm text-dimmed">
+            Recommended by family law attorneys
+          </p>
         </div>
-      </template>
+      </UContainer>
+    </section>
 
-      <template #default>
-        <div class="flex flex-wrap items-center justify-center gap-4 text-xs text-muted">
-          <span class="flex items-center gap-2">
-            <UIcon name="i-lucide-shield-check" class="size-4 text-primary" />
-            End-to-end encrypted
-          </span>
-          <span class="flex items-center gap-2">
-            <UIcon name="i-lucide-lock" class="size-4 text-primary" />
-            HIPAA aligned
-          </span>
-          <span class="flex items-center gap-2">
-            <UIcon name="i-lucide-scale" class="size-4 text-primary" />
-            Built for court
-          </span>
+    <!-- How It Works Section -->
+    <section class="border-t border-default bg-default py-24">
+      <UContainer>
+        <div class="mx-auto max-w-2xl text-center">
+          <h2 class="text-3xl font-bold tracking-tight text-highlighted sm:text-4xl">
+            That's it.
+          </h2>
+          <p class="mt-4 text-lg text-muted">
+            No apps to learn. No templates to fill. Just talk.
+          </p>
         </div>
-      </template>
-    </UPageHero>
 
-    <UPageSection
-      title="Everything you need to protect yourself"
-      description="Simple tools that work when you need them most."
-    >
-      <UPageGrid>
-        <UPageCard
-          v-for="feature in features"
-          :key="feature.title"
-          v-bind="feature"
-          spotlight
-          highlight
-          variant="subtle"
-        />
-      </UPageGrid>
-    </UPageSection>
+        <div class="mx-auto mt-16 max-w-4xl">
+          <div class="grid gap-8 md:grid-cols-3">
+            <div
+              v-for="step in steps"
+              :key="step.number"
+              class="relative"
+            >
+              <!-- Step number -->
+              <div class="mb-4 font-mono text-xs font-semibold tracking-wider text-primary">
+                {{ step.number }}
+              </div>
 
-    <USeparator />
+              <!-- Step content -->
+              <h3 class="text-lg font-semibold text-highlighted">
+                {{ step.title }}
+              </h3>
+              <p class="mt-2 text-sm leading-relaxed text-muted">
+                {{ step.description }}
+              </p>
+            </div>
+          </div>
+        </div>
+      </UContainer>
+    </section>
 
-    <UPageCTA
-      v-bind="cta"
-      align="center"
-      variant="soft"
-    />
+    <!-- Court-Ready Document Preview Section -->
+    <section class="border-t border-default bg-muted py-24 overflow-hidden">
+      <UContainer>
+        <div class="mx-auto max-w-2xl text-center mb-12">
+          <h2 class="text-3xl font-bold tracking-tight text-highlighted sm:text-4xl">
+            The document your attorney actually needs.
+          </h2>
+          <p class="mt-4 text-lg text-muted">
+            Clean, chronological, court-ready. No more digging through texts at midnight.
+          </p>
+        </div>
+
+        <!-- Document Preview -->
+        <div class="relative mx-auto max-w-4xl">
+          <!-- Paper shadow layers for depth -->
+          <div class="absolute inset-x-4 top-2 h-full bg-gray-200/30 dark:bg-gray-800/30 rounded-lg transform rotate-1" />
+          <div class="absolute inset-x-2 top-1 h-full bg-gray-100/30 dark:bg-gray-900/30 rounded-lg transform -rotate-0.5" />
+          
+          <!-- Main document -->
+          <div class="relative bg-white dark:bg-gray-950 rounded-lg shadow-2xl overflow-hidden border border-default">
+            <!-- Accent bar at top -->
+            <div class="h-1.5 bg-primary" />
+            
+            <!-- Document content -->
+            <div class="p-8 sm:p-12">
+              <!-- Document Header -->
+              <h1 class="text-2xl sm:text-3xl font-bold text-highlighted tracking-tight">
+                Custody case timeline & evidence summary
+              </h1>
+              
+              <!-- Case metadata -->
+              <div class="mt-6 space-y-1.5 text-sm">
+                <div class="flex gap-2">
+                  <span class="font-semibold text-highlighted min-w-[100px]">Case:</span>
+                  <span class="text-muted">{{ documentData.caseName }}</span>
+                </div>
+                <div class="flex gap-2">
+                  <span class="font-semibold text-highlighted min-w-[100px]">Court:</span>
+                  <span class="text-muted">{{ documentData.court }}</span>
+                </div>
+                <div class="flex gap-2">
+                  <span class="font-semibold text-highlighted min-w-[100px]">Generated on:</span>
+                  <span class="text-muted">{{ documentData.generatedDate }}</span>
+                </div>
+              </div>
+
+              <!-- Divider -->
+              <div class="my-8 border-t border-default" />
+
+              <!-- Section 1: Overview -->
+              <div>
+                <h2 class="text-lg font-bold text-highlighted">1. Overview</h2>
+                <p class="mt-4 text-sm text-toned leading-relaxed">
+                  {{ documentData.overview.goal }}
+                </p>
+                <p class="mt-4 text-sm text-toned">
+                  <span class="font-medium text-highlighted">Children:</span> {{ documentData.overview.children }}
+                </p>
+                <p class="mt-4 text-sm text-toned">
+                  <span class="font-medium text-highlighted">Key concerns:</span> {{ documentData.overview.concerns.join(', ') }}
+                </p>
+              </div>
+
+              <!-- Divider -->
+              <div class="my-8 border-t border-default" />
+
+              <!-- Section 2: Timeline -->
+              <div>
+                <h2 class="text-lg font-bold text-highlighted mb-6">2. Timeline of key events</h2>
+                
+                <ol class="space-y-6">
+                  <li
+                    v-for="(event, index) in documentData.events.slice(0, 4)"
+                    :key="index"
+                    class="relative"
+                  >
+                    <!-- Event header -->
+                    <div class="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+                      <span class="text-sm text-dimmed">{{ index + 1 }}.</span>
+                      <span class="text-sm text-dimmed">{{ event.date }}</span>
+                      <span class="font-semibold text-highlighted">{{ event.title }}</span>
+                      <span class="text-sm italic text-dimmed">
+                        ({{ event.category }})
+                      </span>
+                    </div>
+                    
+                    <!-- Event description -->
+                    <p class="mt-2 ml-6 text-sm text-muted leading-relaxed">
+                      {{ event.description }}
+                    </p>
+                    
+                    <!-- Participants -->
+                    <p class="mt-2 ml-6 text-xs text-dimmed">
+                      Participants: {{ event.participants.join(', ') }}
+                    </p>
+                  </li>
+                </ol>
+              </div>
+            </div>
+
+            <!-- Fade overlay at bottom -->
+            <div class="absolute bottom-0 left-0 right-0 h-48 bg-gradient-to-t from-white via-white/95 dark:from-gray-950 dark:via-gray-950/95 to-transparent pointer-events-none" />
+          </div>
+
+          <!-- "Continue" hint at bottom -->
+          <div class="absolute bottom-4 left-1/2 transform -translate-x-1/2 flex items-center gap-2 text-sm text-muted">
+            <span class="px-3 py-1 rounded-full bg-elevated/80 backdrop-blur border border-default shadow-sm">
+              <span class="text-dimmed">47 more events documented</span>
+            </span>
+          </div>
+        </div>
+
+        <!-- CTA under document -->
+        <div class="mt-16 text-center">
+          <NuxtLink to="/auth/signup">
+            <UButton
+              size="lg"
+              color="primary"
+            >
+              Generate your timeline
+              <template #trailing>
+                <UIcon name="i-lucide-file-text" class="size-4" />
+              </template>
+            </UButton>
+          </NuxtLink>
+        </div>
+      </UContainer>
+    </section>
+
+    <!-- Voice to Timeline Demo Section -->
+    <section class="border-t border-default bg-muted py-24">
+      <UContainer>
+        <div class="mx-auto max-w-6xl">
+          <div class="grid gap-12 lg:grid-cols-2 lg:gap-16 items-start">
+            <!-- Left: Voice Input Card -->
+            <div class="space-y-6">
+              <h2 class="text-3xl font-bold tracking-tight text-highlighted sm:text-4xl">
+                You talk.<br />
+                <span class="text-primary">We extract the timeline.</span>
+              </h2>
+
+              <!-- Voice Recording Card -->
+              <div class="rounded-xl border border-default bg-default p-6 shadow-lg">
+                <div class="flex items-center justify-between mb-4">
+                  <div class="flex items-center gap-3">
+                    <div class="flex size-10 items-center justify-center rounded-full bg-error/10">
+                      <UIcon name="i-lucide-mic" class="size-5 text-error" />
+                    </div>
+                    <div>
+                      <p class="text-sm font-medium text-highlighted">Voice Note</p>
+                      <p class="text-xs text-dimmed">Recording • 0:47</p>
+                    </div>
+                  </div>
+                  <div class="flex items-center gap-1.5 text-xs text-dimmed">
+                    <UIcon name="i-lucide-calendar" class="size-3.5" />
+                    Nov 24, 2024
+                  </div>
+                </div>
+                
+                <!-- Waveform visualization -->
+                <div class="flex h-12 items-center gap-0.5 rounded-lg bg-elevated/50 px-3">
+                  <div
+                    v-for="(height, i) in waveformBars"
+                    :key="i"
+                    class="flex-1 rounded-full bg-primary/60 transition-all duration-150"
+                    :style="{ height: `${Math.max(8, height * 0.4)}px` }"
+                  />
+                </div>
+
+                <!-- Transcript preview -->
+                <div class="mt-4 rounded-lg bg-elevated/30 p-4">
+                  <p class="text-xs font-medium text-dimmed uppercase tracking-wider mb-2">Transcript</p>
+                  <p class="text-sm text-muted leading-relaxed italic">
+                    "{{ voiceTranscript }}"
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <!-- Right: Extracted Events -->
+            <div class="space-y-4">
+              <div class="flex items-center justify-between">
+                <h3 class="text-lg font-semibold text-highlighted">Extracted Events</h3>
+                <span class="text-xs text-dimmed">Auto-generated</span>
+              </div>
+
+              <!-- Events list -->
+              <div class="space-y-3">
+                <div
+                  v-for="(event, index) in extractedEvents"
+                  :key="index"
+                  class="rounded-xl border border-default bg-default p-4 shadow-sm transition-all duration-500"
+                  :class="event.visible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4'"
+                >
+                  <div class="flex items-start gap-4">
+                    <!-- Type indicator -->
+                    <div 
+                      class="flex size-9 shrink-0 items-center justify-center rounded-lg"
+                      :class="{
+                        'bg-error/10': event.color === 'error',
+                        'bg-warning/10': event.color === 'warning',
+                        'bg-info/10': event.color === 'info'
+                      }"
+                    >
+                      <UIcon 
+                        :name="event.type === 'incident' ? 'i-lucide-alert-circle' : event.type === 'communication' ? 'i-lucide-message-square' : 'i-lucide-lightbulb'"
+                        class="size-4"
+                        :class="{
+                          'text-error': event.color === 'error',
+                          'text-warning': event.color === 'warning',
+                          'text-info': event.color === 'info'
+                        }"
+                      />
+                    </div>
+                    
+                    <div class="flex-1 min-w-0">
+                      <div class="flex items-center justify-between gap-2">
+                        <p class="font-medium text-highlighted text-sm">{{ event.title }}</p>
+                        <span class="shrink-0 text-xs text-dimmed font-mono">{{ event.time }}</span>
+                      </div>
+                      <p class="mt-1 text-sm text-muted">{{ event.detail }}</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Summary badge -->
+              <div class="flex items-center justify-center gap-2 rounded-lg border border-dashed border-primary/30 bg-primary/5 p-4 mt-6">
+                <UIcon name="i-lucide-sparkles" class="size-4 text-primary" />
+                <span class="text-sm text-primary font-medium">4 events extracted • Ready for your timeline</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </UContainer>
+    </section>
+
+    <!-- Evidence Capture Section -->
+    <section class="border-t border-default bg-default py-24">
+      <UContainer>
+        <div class="grid gap-16 lg:grid-cols-2 lg:gap-20 items-start">
+          <!-- Left column - Text & features -->
+          <div>
+            <h2 class="text-3xl font-bold tracking-tight text-highlighted sm:text-4xl">
+              Screenshot it.<br />
+              <span class="text-primary">AI does the rest.</span>
+            </h2>
+            <p class="mt-6 text-lg leading-relaxed text-toned">
+              Every text screenshot, every email, every photo—just upload it. Our AI reads the image, extracts every word, identifies who said what, and flags anything your lawyer needs to see.
+            </p>
+
+            <!-- Feature badges -->
+            <div class="mt-8 space-y-4">
+              <div
+                v-for="capability in capabilities"
+                :key="capability.title"
+                class="flex gap-4"
+              >
+                <div class="flex size-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                  <UIcon :name="capability.icon" class="size-5" />
+                </div>
+                <div>
+                  <h3 class="font-medium text-highlighted">
+                    {{ capability.title }}
+                  </h3>
+                  <p class="mt-0.5 text-sm text-muted">
+                    {{ capability.description }}
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <div class="mt-10">
+              <NuxtLink to="/auth/signup">
+                <UButton
+                  color="primary"
+                  size="lg"
+                >
+                  Start uploading evidence
+                  <template #trailing>
+                    <UIcon name="i-lucide-upload" class="size-4" />
+                  </template>
+                </UButton>
+              </NuxtLink>
+            </div>
+          </div>
+
+          <!-- Right column - Evidence extraction demo -->
+          <div class="space-y-4">
+            <!-- Upload card -->
+            <div class="rounded-xl border border-default bg-elevated p-5 shadow-lg">
+              <div class="flex items-center justify-between mb-4">
+                <div class="flex items-center gap-3">
+                  <div class="flex size-10 items-center justify-center rounded-lg bg-info/10">
+                    <UIcon name="i-lucide-image" class="size-5 text-info" />
+                  </div>
+                  <div>
+                    <p class="text-sm font-medium text-highlighted">{{ evidenceScreenshot.filename }}</p>
+                    <p class="text-xs text-dimmed">Uploaded {{ evidenceScreenshot.uploadTime }}</p>
+                  </div>
+                </div>
+                <UBadge color="success" variant="subtle" size="xs">
+                  Processing
+                </UBadge>
+              </div>
+
+              <!-- Mock screenshot preview -->
+              <div class="rounded-lg border border-default bg-muted/30 p-4 font-mono text-xs space-y-2">
+                <div class="flex gap-2">
+                  <span class="text-dimmed">6:15 PM</span>
+                  <span class="text-highlighted font-medium">Marcus:</span>
+                  <span class="text-muted">Traffic was really bad, sorry</span>
+                </div>
+                <div class="flex gap-2">
+                  <span class="text-dimmed">6:18 PM</span>
+                  <span class="text-primary font-medium">You:</span>
+                  <span class="text-muted">You were supposed to be here at 5. Emma was crying.</span>
+                </div>
+                <div class="flex gap-2">
+                  <span class="text-dimmed">6:22 PM</span>
+                  <span class="text-highlighted font-medium">Marcus:</span>
+                  <span class="text-muted">I said I'm sorry. I'll be there by 7.</span>
+                </div>
+                <div class="flex gap-2">
+                  <span class="text-dimmed">6:23 PM</span>
+                  <span class="text-primary font-medium">You:</span>
+                  <span class="text-muted">This is the third time this month.</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- AI Extraction progress -->
+            <div class="rounded-xl border border-default bg-default p-5 shadow-sm">
+              <div class="flex items-center gap-2 mb-4">
+                <UIcon name="i-lucide-sparkles" class="size-4 text-primary" />
+                <p class="text-sm font-medium text-highlighted">AI Analysis</p>
+              </div>
+
+              <div class="space-y-3">
+                <div
+                  v-for="(step, index) in aiExtractionSteps"
+                  :key="index"
+                  class="flex items-center gap-3 transition-all duration-500"
+                  :class="step.visible ? 'opacity-100 translate-x-0' : 'opacity-0 -translate-x-4'"
+                >
+                  <div 
+                    class="flex size-7 items-center justify-center rounded-full"
+                    :class="{
+                      'bg-primary/10': step.status === 'processing',
+                      'bg-success/10': step.status === 'complete',
+                      'bg-warning/10': step.status === 'flagged'
+                    }"
+                  >
+                    <UIcon 
+                      :name="step.status === 'processing' ? 'i-lucide-loader-2' : step.status === 'flagged' ? 'i-lucide-alert-triangle' : 'i-lucide-check'"
+                      class="size-3.5"
+                      :class="{
+                        'text-primary animate-spin': step.status === 'processing',
+                        'text-success': step.status === 'complete',
+                        'text-warning': step.status === 'flagged'
+                      }"
+                    />
+                  </div>
+                  <div class="flex-1 min-w-0">
+                    <p class="text-sm text-highlighted">{{ step.label }}</p>
+                    <p v-if="step.detail" class="text-xs text-muted">{{ step.detail }}</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Extracted evidence result -->
+            <div 
+              class="rounded-xl border-2 border-primary/30 bg-primary/5 p-5 transition-all duration-500"
+              :class="extractedEvidence.visible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4'"
+            >
+              <div class="flex items-center justify-between mb-3">
+                <div class="flex items-center gap-2">
+                  <UIcon name="i-lucide-file-check" class="size-4 text-primary" />
+                  <p class="text-sm font-semibold text-highlighted">Evidence Created</p>
+                </div>
+                <UBadge color="primary" variant="subtle" size="xs">
+                  Added to timeline
+                </UBadge>
+              </div>
+
+              <p class="text-sm text-muted mb-3">{{ extractedEvidence.summary }}</p>
+
+              <!-- Tags -->
+              <div class="flex flex-wrap gap-1.5 mb-3">
+                <UBadge
+                  v-for="tag in extractedEvidence.tags"
+                  :key="tag"
+                  color="neutral"
+                  variant="outline"
+                  size="xs"
+                >
+                  {{ tag }}
+                </UBadge>
+              </div>
+
+              <!-- Flags -->
+              <div class="flex items-center gap-3 pt-3 border-t border-primary/20">
+                <div v-if="extractedEvidence.flags.agreement_violation" class="flex items-center gap-1.5">
+                  <UIcon name="i-lucide-alert-circle" class="size-3.5 text-warning" />
+                  <span class="text-xs text-warning font-medium">Schedule violation</span>
+                </div>
+                <div v-if="extractedEvidence.flags.child_involved" class="flex items-center gap-1.5">
+                  <UIcon name="i-lucide-user" class="size-3.5 text-info" />
+                  <span class="text-xs text-info font-medium">Child involved</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </UContainer>
+    </section>
+
+    <!-- For Attorneys Section -->
+    <section class="border-t border-default bg-muted py-24">
+      <UContainer>
+        <div class="mx-auto max-w-6xl">
+          <div class="grid gap-12 lg:grid-cols-2 lg:gap-16 items-center">
+            <!-- Left: Content -->
+            <div>
+              <div class="inline-flex items-center gap-2 rounded-full border border-primary/20 bg-primary/5 px-3 py-1 text-xs font-medium text-primary">
+                <UIcon name="i-lucide-scale" class="size-3.5" />
+                For Family Law Attorneys
+              </div>
+
+              <h2 class="mt-6 text-3xl font-bold tracking-tight text-highlighted sm:text-4xl">
+                Better client documentation.<br />
+                <span class="text-muted">Better outcomes.</span>
+              </h2>
+
+              <p class="mt-6 text-lg leading-relaxed text-toned">
+                Stop getting chaotic folders of screenshots before hearings. Give your clients Daylight—they document as they go, you get organized timelines you can actually use.
+              </p>
+
+              <!-- Benefits list -->
+              <div class="mt-8 space-y-4">
+                <div class="flex items-start gap-3">
+                  <div class="mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full bg-success/10">
+                    <UIcon name="i-lucide-check" class="size-3 text-success" />
+                  </div>
+                  <div>
+                    <p class="font-medium text-highlighted">Chronological timelines ready for court</p>
+                    <p class="text-sm text-muted">Events organized with dates, times, and linked evidence</p>
+                  </div>
+                </div>
+                <div class="flex items-start gap-3">
+                  <div class="mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full bg-success/10">
+                    <UIcon name="i-lucide-check" class="size-3 text-success" />
+                  </div>
+                  <div>
+                    <p class="font-medium text-highlighted">PDF exports formatted for filings</p>
+                    <p class="text-sm text-muted">Professional documentation that judges can follow</p>
+                  </div>
+                </div>
+                <div class="flex items-start gap-3">
+                  <div class="mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full bg-success/10">
+                    <UIcon name="i-lucide-check" class="size-3 text-success" />
+                  </div>
+                  <div>
+                    <p class="font-medium text-highlighted">Clients capture in real-time</p>
+                    <p class="text-sm text-muted">No more "I forgot to write it down" at meetings</p>
+                  </div>
+                </div>
+              </div>
+
+              <div class="mt-10">
+                <NuxtLink to="/auth/signup">
+                  <UButton
+                    size="lg"
+                    color="neutral"
+                    variant="soft"
+                  >
+                    Partner with us
+                    <template #trailing>
+                      <UIcon name="i-lucide-arrow-right" class="size-4" />
+                    </template>
+                  </UButton>
+                </NuxtLink>
+              </div>
+            </div>
+
+            <!-- Right: Mock Export Preview -->
+            <div class="lg:pl-8">
+              <UCard variant="outline" class="shadow-xl">
+                <template #header>
+                  <div class="flex items-center justify-between">
+                    <div class="flex items-center gap-3">
+                      <div class="flex size-10 items-center justify-center rounded-lg bg-primary/10">
+                        <UIcon name="i-lucide-file-text" class="size-5 text-primary" />
+                      </div>
+                      <div>
+                        <p class="font-semibold text-highlighted">Timeline Export</p>
+                        <p class="text-xs text-dimmed">Johnson v. Johnson • Case #2024-FL-1847</p>
+                      </div>
+                    </div>
+                    <UBadge color="success" variant="subtle" size="sm">
+                      Court-Ready
+                    </UBadge>
+                  </div>
+                </template>
+
+                <!-- Mock document preview -->
+                <div class="space-y-4">
+                  <div class="rounded-lg border border-default bg-elevated/30 p-4">
+                    <p class="text-xs font-semibold uppercase tracking-wider text-dimmed">Summary</p>
+                    <p class="mt-2 text-sm text-muted">47 documented events from October 1 – November 24, 2024. Includes 12 custody exchanges, 8 communication records, 4 medical appointments.</p>
+                  </div>
+
+                  <div class="space-y-2">
+                    <div class="flex items-center justify-between rounded-lg bg-elevated/30 px-4 py-3">
+                      <div class="flex items-center gap-3">
+                        <span class="flex size-2 rounded-full bg-error" />
+                        <span class="text-sm text-highlighted">Late Pickups</span>
+                      </div>
+                      <span class="text-sm font-medium text-error">6 incidents</span>
+                    </div>
+                    <div class="flex items-center justify-between rounded-lg bg-elevated/30 px-4 py-3">
+                      <div class="flex items-center gap-3">
+                        <span class="flex size-2 rounded-full bg-warning" />
+                        <span class="text-sm text-highlighted">Schedule Changes</span>
+                      </div>
+                      <span class="text-sm font-medium text-warning">4 incidents</span>
+                    </div>
+                    <div class="flex items-center justify-between rounded-lg bg-elevated/30 px-4 py-3">
+                      <div class="flex items-center gap-3">
+                        <span class="flex size-2 rounded-full bg-success" />
+                        <span class="text-sm text-highlighted">Positive Interactions</span>
+                      </div>
+                      <span class="text-sm font-medium text-success">23 events</span>
+                    </div>
+                  </div>
+                </div>
+
+                <template #footer>
+                  <div class="flex items-center justify-between">
+                    <span class="text-xs text-dimmed">Generated Nov 24, 2024 at 2:34 PM</span>
+                    <div class="flex items-center gap-2">
+                      <UButton size="xs" color="neutral" variant="ghost">
+                        <UIcon name="i-lucide-download" class="size-3.5" />
+                        PDF
+                      </UButton>
+                      <UButton size="xs" color="neutral" variant="ghost">
+                        <UIcon name="i-lucide-share" class="size-3.5" />
+                        Share
+                      </UButton>
+                    </div>
+                  </div>
+                </template>
+              </UCard>
+            </div>
+          </div>
+        </div>
+      </UContainer>
+    </section>
+
+    <!-- Final CTA -->
+    <section class="border-t border-default bg-default py-24">
+      <UContainer>
+        <div class="mx-auto max-w-2xl text-center">
+          <h2 class="text-3xl font-bold tracking-tight text-highlighted sm:text-4xl">
+            Stop carrying this in your head.
+          </h2>
+          <p class="mt-4 text-lg text-muted">
+            Sign up. Press record. Talk. Done.
+          </p>
+
+          <div class="mt-10">
+            <NuxtLink to="/auth/signup">
+              <UButton
+                size="xl"
+                color="primary"
+                class="px-8"
+              >
+                Start documenting
+                <template #trailing>
+                  <UIcon name="i-lucide-arrow-right" class="size-4" />
+                </template>
+              </UButton>
+            </NuxtLink>
+          </div>
+        </div>
+      </UContainer>
+    </section>
   </div>
 </template>
