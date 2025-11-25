@@ -94,6 +94,96 @@ export type Database = {
         }
         Relationships: []
       }
+      capture_evidence: {
+        Row: {
+          capture_id: string
+          created_at: string
+          evidence_id: string
+          id: string
+          is_processed: boolean
+          processed_at: string | null
+          sort_order: number
+        }
+        Insert: {
+          capture_id: string
+          created_at?: string
+          evidence_id: string
+          id?: string
+          is_processed?: boolean
+          processed_at?: string | null
+          sort_order?: number
+        }
+        Update: {
+          capture_id?: string
+          created_at?: string
+          evidence_id?: string
+          id?: string
+          is_processed?: boolean
+          processed_at?: string | null
+          sort_order?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "capture_evidence_capture_id_fkey"
+            columns: ["capture_id"]
+            isOneToOne: false
+            referencedRelation: "captures"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "capture_evidence_evidence_id_fkey"
+            columns: ["evidence_id"]
+            isOneToOne: false
+            referencedRelation: "evidence"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      captures: {
+        Row: {
+          completed_at: string | null
+          created_at: string
+          event_text: string | null
+          extraction_raw: Json | null
+          id: string
+          processed_at: string | null
+          processing_error: string | null
+          reference_date: string | null
+          reference_time_description: string | null
+          status: Database["public"]["Enums"]["capture_status"]
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          completed_at?: string | null
+          created_at?: string
+          event_text?: string | null
+          extraction_raw?: Json | null
+          id?: string
+          processed_at?: string | null
+          processing_error?: string | null
+          reference_date?: string | null
+          reference_time_description?: string | null
+          status?: Database["public"]["Enums"]["capture_status"]
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          completed_at?: string | null
+          created_at?: string
+          event_text?: string | null
+          extraction_raw?: Json | null
+          id?: string
+          processed_at?: string | null
+          processing_error?: string | null
+          reference_date?: string | null
+          reference_time_description?: string | null
+          status?: Database["public"]["Enums"]["capture_status"]
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       cases: {
         Row: {
           case_number: string | null
@@ -416,6 +506,7 @@ export type Database = {
       evidence: {
         Row: {
           created_at: string
+          extraction_raw: Json | null
           id: string
           mime_type: string | null
           original_filename: string | null
@@ -424,10 +515,12 @@ export type Database = {
           summary: string | null
           tags: string[]
           updated_at: string
+          user_annotation: string | null
           user_id: string
         }
         Insert: {
           created_at?: string
+          extraction_raw?: Json | null
           id?: string
           mime_type?: string | null
           original_filename?: string | null
@@ -436,10 +529,12 @@ export type Database = {
           summary?: string | null
           tags?: string[]
           updated_at?: string
+          user_annotation?: string | null
           user_id: string
         }
         Update: {
           created_at?: string
+          extraction_raw?: Json | null
           id?: string
           mime_type?: string | null
           original_filename?: string | null
@@ -448,6 +543,7 @@ export type Database = {
           summary?: string | null
           tags?: string[]
           updated_at?: string
+          user_annotation?: string | null
           user_id?: string
         }
         Relationships: []
@@ -594,6 +690,7 @@ export type Database = {
       action_priority: "urgent" | "high" | "normal" | "low"
       action_status: "open" | "in_progress" | "done" | "cancelled"
       action_type: "document" | "contact" | "file" | "obtain" | "other"
+      capture_status: "draft" | "processing" | "review" | "completed" | "cancelled"
       communication_direction: "incoming" | "outgoing" | "mixed" | "unknown"
       communication_medium: "text" | "email" | "unknown"
       event_type:
@@ -750,6 +847,7 @@ export const Constants = {
       action_priority: ["urgent", "high", "normal", "low"],
       action_status: ["open", "in_progress", "done", "cancelled"],
       action_type: ["document", "contact", "file", "obtain", "other"],
+      capture_status: ["draft", "processing", "review", "completed", "cancelled"],
       communication_direction: ["incoming", "outgoing", "mixed", "unknown"],
       communication_medium: ["text", "email", "unknown"],
       event_type: [

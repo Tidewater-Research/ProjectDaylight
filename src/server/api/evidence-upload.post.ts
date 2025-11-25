@@ -33,11 +33,17 @@ export default defineEventHandler(async (event) => {
 
     const buffer = await fs.readFile(file.filepath)
     const mimeType = file.mimetype || 'application/octet-stream'
-    const safeOriginalName = file.originalFilename || 'evidence-upload'
+    const originalName = file.originalFilename || 'evidence-upload'
+    
+    // Sanitize filename for Supabase Storage (no spaces or special chars)
+    const sanitizedName = originalName
+      .replace(/\s+/g, '_')           // Replace spaces with underscores
+      .replace(/[^a-zA-Z0-9._-]/g, '') // Remove other special characters
+    
     const timestamp = Date.now()
 
     const bucket = 'daylight-files'
-    const storagePath = `evidence/${userId}/${timestamp}-${safeOriginalName}`
+    const storagePath = `evidence/${userId}/${timestamp}-${sanitizedName}`
 
     const { error: uploadError } = await supabase.storage
       .from(bucket)
@@ -73,9 +79,9 @@ export default defineEventHandler(async (event) => {
         user_id: userId,
         source_type: sourceType,
         storage_path: storagePath,
-        original_filename: safeOriginalName,
+        original_filename: originalName,  // Keep original name for display
         mime_type: mimeType,
-        summary: `Uploaded file: ${safeOriginalName}`,
+        summary: `Uploaded file: ${originalName}`,
         tags: []
       })
       .select('id, source_type, storage_path, original_filename, summary, tags, created_at')

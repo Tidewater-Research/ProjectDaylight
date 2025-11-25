@@ -1,56 +1,114 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useObjectUrl } from '@vueuse/core'
 
-const isSupported = ref(true)
-const isRecording = ref(false)
-const isSubmitting = ref(false)
-const isExtracting = ref(false)
-const hasRecording = ref(false)
-const extractionViewMode = ref<'pretty' | 'raw'>('pretty')
-const transcript = ref('')
-const error = ref<string | null>(null)
-const extractionError = ref<string | null>(null)
-const extractionResult = ref<any | null>(null)
+// =============================================================================
+// Types
+// =============================================================================
 
-// Supabase auth/session used to authorize server-side extraction APIs
+interface EvidenceItem {
+  id: string
+  file: File | null
+  previewUrl: string
+  annotation: string
+  fileName: string
+  mimeType: string
+  isUploading: boolean
+  isProcessing: boolean
+  isProcessed: boolean
+  uploadedEvidenceId: string | null
+  extractionSummary: string | null
+  error: string | null
+}
+
+interface CaptureState {
+  step: 'event' | 'evidence' | 'processing' | 'review'
+  eventText: string
+  referenceDate: string
+  evidence: EvidenceItem[]
+  isRecording: boolean
+  hasRecording: boolean
+  recordingBlob: Blob | null
+  transcript: string
+  extractionResult: any | null
+  processingStatus: string
+  error: string | null
+}
+
+// =============================================================================
+// State
+// =============================================================================
+
 const supabase = useSupabaseClient()
 const supabaseSession = useSupabaseSession()
 
-// Tab state: audio vs communications evidence
-const activeCaptureTab = ref<'audio' | 'communications'>('audio')
+const state = ref<CaptureState>({
+  step: 'event',
+  eventText: '',
+  referenceDate: new Date().toISOString().slice(0, 10),
+  evidence: [],
+  isRecording: false,
+  hasRecording: false,
+  recordingBlob: null,
+  transcript: '',
+  extractionResult: null,
+  processingStatus: '',
+  error: null
+})
 
-// Communications evidence (file -> image data URL -> structured evidence)
-const communicationImageUrl = ref('') // data URL or external URL for the selected image
-const communicationImageName = ref('')
-const communicationImageMimeType = ref('')
-const hasCommunicationImage = computed(() => communicationImageUrl.value.trim().length > 0)
-const isCommExtracting = ref(false)
-const commExtractionError = ref<string | null>(null)
-const commExtractionResult = ref<any | null>(null)
-const commExtractionViewMode = ref<'pretty' | 'raw'>('pretty')
-
-const captureText = ref('')
-const hasCaptureText = computed(() => captureText.value.trim().length > 0)
-
-// Calendar date when the events in this note occurred.
-// Defaults to today's date (local), formatted as YYYY-MM-DD for the native date input.
-const eventDate = ref<string>(new Date().toISOString().slice(0, 10))
-
-const recordingBlob = ref<Blob | null>(null)
-const recordingUrl = useObjectUrl(recordingBlob)
+const isSupported = ref(true)
+const isTranscribing = ref(false)
+const isSubmitting = ref(false)
 
 let mediaRecorder: MediaRecorder | null = null
 let chunks: BlobPart[] = []
-let recordingMimeType = '' // Track the actual mime type used by MediaRecorder
+let recordingMimeType = ''
 
-const canTranscribe = computed(() => hasRecording.value && !isRecording.value && !isSubmitting.value)
-const hasTranscript = computed(() => transcript.value.trim().length > 0)
+const recordingUrl = useObjectUrl(() => state.value.recordingBlob)
+
+// =============================================================================
+// Computed
+// =============================================================================
+
+const hasEventContent = computed(() => {
+  return state.value.eventText.trim().length > 0 || state.value.transcript.trim().length > 0
+})
+
+const effectiveEventText = computed(() => {
+  return state.value.transcript.trim() || state.value.eventText.trim()
+})
+
+const canProceedToEvidence = computed(() => {
+  return hasEventContent.value && !state.value.isRecording && !isTranscribing.value
+})
+
+const canSubmit = computed(() => {
+  return hasEventContent.value && !isSubmitting.value
+})
+
+const hasEvidence = computed(() => state.value.evidence.length > 0)
+
+const allEvidenceProcessed = computed(() => {
+  return state.value.evidence.every(e => e.isProcessed || e.error)
+})
+
+const evidenceWithExtractions = computed(() => {
+  return state.value.evidence
+    .filter(e => e.isProcessed && e.extractionSummary)
+    .map(e => ({
+      evidenceId: e.uploadedEvidenceId,
+      annotation: e.annotation,
+      summary: e.extractionSummary
+    }))
+})
+
+// =============================================================================
+// Lifecycle
+// =============================================================================
 
 onMounted(() => {
   if (typeof navigator === 'undefined' || !navigator.mediaDevices?.getUserMedia) {
     isSupported.value = false
-    error.value = 'Audio recording is not supported in this browser.'
   }
 })
 
@@ -58,21 +116,27 @@ onBeforeUnmount(() => {
   if (mediaRecorder && mediaRecorder.state !== 'inactive') {
     mediaRecorder.stop()
   }
+  // Clean up evidence preview URLs
+  state.value.evidence.forEach(e => {
+    if (e.previewUrl && e.previewUrl.startsWith('blob:')) {
+      URL.revokeObjectURL(e.previewUrl)
+    }
+  })
 })
 
-async function startRecording() {
-  if (!isSupported.value || isRecording.value) {
-    return
-  }
+// =============================================================================
+// Recording Functions
+// =============================================================================
 
-  error.value = null
-  extractionError.value = null
+async function startRecording() {
+  if (!isSupported.value || state.value.isRecording) return
+
+  state.value.error = null
 
   try {
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
     chunks = []
 
-    // Pick a MIME type that this browser actually supports
     let preferredMimeType = ''
     if (typeof MediaRecorder !== 'undefined') {
       const candidates = [
@@ -82,7 +146,6 @@ async function startRecording() {
         'audio/mpeg',
         'audio/wav'
       ]
-
       for (const candidate of candidates) {
         if (MediaRecorder.isTypeSupported(candidate)) {
           preferredMimeType = candidate
@@ -105,128 +168,45 @@ async function startRecording() {
 
     mediaRecorder.onstop = () => {
       const blob = new Blob(chunks, { type: recordingMimeType })
-      recordingBlob.value = blob
-      hasRecording.value = true
-
-      // Stop all tracks so we release the microphone
+      state.value.recordingBlob = blob
+      state.value.hasRecording = true
       stream.getTracks().forEach(track => track.stop())
     }
 
     mediaRecorder.start()
-    isRecording.value = true
+    state.value.isRecording = true
   } catch (e) {
-    // eslint-disable-next-line no-console
     console.error(e)
-    error.value = 'Unable to access microphone. Please check your permissions and try again.'
-    isRecording.value = false
+    state.value.error = 'Unable to access microphone. Please check your permissions.'
+    state.value.isRecording = false
   }
 }
 
 function stopRecording() {
-  if (mediaRecorder && isRecording.value && mediaRecorder.state === 'recording') {
+  if (mediaRecorder && state.value.isRecording && mediaRecorder.state === 'recording') {
     mediaRecorder.stop()
-    isRecording.value = false
+    state.value.isRecording = false
   }
 }
 
 async function toggleRecording() {
-  if (!isSupported.value) {
-    return
-  }
-
-  if (isRecording.value) {
+  if (!isSupported.value) return
+  if (state.value.isRecording) {
     stopRecording()
   } else {
     await startRecording()
   }
 }
 
-async function loadTestAudio(audioFile: string = 'invictus') {
-  error.value = null
-  extractionError.value = null
-  isRecording.value = false
-  
-  try {
-    // Map audio file names to their paths
-    const audioFiles: Record<string, string> = {
-      'invictus': '/invictus.mp3',
-      'speech': '/test-speech.wav',
-      'music': '/test-audio.mp3'
-    }
-    
-    const filename = audioFiles[audioFile] || '/invictus.mp3'
-    const response = await fetch(filename)
-    if (!response.ok) {
-      throw new Error(`Failed to load ${audioFile} audio`)
-    }
-    
-    const blob = await response.blob()
-    recordingBlob.value = blob
-    hasRecording.value = true
-    transcript.value = ''
-  } catch (e) {
-    // eslint-disable-next-line no-console
-    console.error(e)
-    error.value = `Failed to load ${audioFile} audio file.`
-  }
-}
+async function transcribeRecording() {
+  if (!state.value.recordingBlob || isTranscribing.value) return
 
-function loadTestText(sample: string = 'incident') {
-  error.value = null
-  isRecording.value = false
-  hasRecording.value = false
-
-  const samples: Record<string, string> = {
-    incident: `Tonight the kids were scheduled to be dropped off at 6:00 PM per our custody agreement. Other parent arrived at 6:45 PM with no prior notice or communication about being late. When they arrived, I could smell alcohol on their breath and they seemed unsteady. The children mentioned they hadn't eaten dinner yet and were asking for food. Sarah (8) said "Daddy forgot to feed us again" and looked upset. Tommy (5) was crying and said his tummy hurt from being hungry. 
-
-I offered to feed them before the exchange but other parent became hostile and said I was "trying to make them look bad." They raised their voice in front of the children, causing Tommy to cry harder. I remained calm and documented the time with my phone. The exchange finally happened at 6:52 PM. I immediately fed the children when we got home - they each ate two full plates of food. 
-
-This is the third late exchange this month without notice. Previous incidents were on November 3rd (30 minutes late) and November 11th (1 hour late). I'm concerned about the pattern and the children's wellbeing during the other parent's custody time.`,
-    
-    positive: `Had a wonderful day with the kids today. Started with making pancakes together for breakfast - Sarah helped mix the batter while Tommy set the table. We practiced counting with the chocolate chips and Sarah read the recipe instructions out loud, which was great for her reading practice.
-
-Took both kids to their pediatrician appointment at 10:00 AM. Dr. Martinez confirmed both children are healthy and developing well. Sarah is in the 75th percentile for height and weight, Tommy is in the 60th percentile. Both are up to date on all vaccinations. Doctor noted Sarah's reading level is advanced for her age and Tommy's speech development is progressing excellently. No concerns noted. I recorded the visit summary and sent it to other parent via Our Family Wizard at 11:30 AM.
-
-After the appointment, we went to the library for story time. Sarah checked out three chapter books and Tommy got a picture book about dinosaurs. The librarian commented on how well-behaved and engaged both children were during the reading session.
-
-In the afternoon, we did homework together. Sarah completed her math worksheet independently and I helped Tommy practice writing his name. We ended the day with a family bike ride around the neighborhood - both kids wore their helmets without being asked. Tommy rode his bike without training wheels for the first time for about 50 feet! Sarah cheered him on. Bedtime routine went smoothly, both kids were in bed by 8:00 PM after baths, teeth brushing, and bedtime stories.`,
-    
-    neutral: `Today's custody exchange at 5:00 PM at the designated meeting spot (Walmart parking lot on Main Street). I arrived at 4:55 PM and parked in our usual spot near the garden center. Other parent arrived at 5:02 PM. 
-
-The children had their overnight bags packed with: 
-- 2 changes of clothes each
-- Toiletries (toothbrushes, toothpaste)
-- Sarah's retainer and case
-- Tommy's special blanket
-- Both kids' homework folders
-- Sarah's science project (due Monday)
-- Medications: Tommy's allergy medicine (Zyrtec, 5mg, one tablet daily in morning)
-
-Brief conversation with other parent about upcoming school events:
-- Parent-teacher conferences next Thursday at 3:00 PM (Sarah) and 3:30 PM (Tommy)
-- Sarah's soccer game Saturday at 10:00 AM at River Park field #3
-- Tommy's preschool Halloween party on October 31st at 2:00 PM
-
-Other parent confirmed receipt of all items and awareness of schedule. Children transitioned calmly, gave me hugs goodbye, and walked to other parent's vehicle without incident. Both children appeared in good spirits. No concerns noted. Exchange completed at 5:08 PM.`
-  }
-
-  const text: string = (samples[sample] as string) ?? samples.incident
-  captureText.value = text
-  transcript.value = text
-}
-
-async function sendForTranscription() {
-  if (!recordingBlob.value || !canTranscribe.value) {
-    return
-  }
-
-  isSubmitting.value = true
-  error.value = null
+  isTranscribing.value = true
+  state.value.error = null
 
   try {
     const formData = new FormData()
-    // Determine file extension based on MIME type
-    const mimeType = recordingBlob.value.type || recordingMimeType || 'audio/webm'
+    const mimeType = state.value.recordingBlob.type || recordingMimeType || 'audio/webm'
     let fileExtension = 'webm'
 
     if (mimeType.includes('mp3') || mimeType.includes('mpeg')) {
@@ -237,1159 +217,733 @@ async function sendForTranscription() {
       fileExtension = 'mp4'
     }
 
-    formData.append('audio', recordingBlob.value, `recording.${fileExtension}`)
+    formData.append('audio', state.value.recordingBlob, `recording.${fileExtension}`)
 
     const response = await $fetch<{ transcript: string }>('/api/transcribe', {
       method: 'POST',
       body: formData as any
     })
 
-    transcript.value = response.transcript
-    extractionResult.value = null
-    extractionError.value = null
-  } catch (e) {
-    // eslint-disable-next-line no-console
+    state.value.transcript = response.transcript
+  } catch (e: any) {
     console.error(e)
-    error.value = 'Failed to contact transcription service. Please try again.'
+    state.value.error = e?.data?.statusMessage || 'Failed to transcribe recording.'
+  } finally {
+    isTranscribing.value = false
+  }
+}
+
+// =============================================================================
+// Evidence Functions
+// =============================================================================
+
+function addEvidence() {
+  const input = document.createElement('input')
+  input.type = 'file'
+  input.accept = 'image/*,application/pdf,.doc,.docx'
+  input.multiple = true
+  
+  input.onchange = (event) => {
+    const target = event.target as HTMLInputElement
+    const files = target.files
+    if (!files) return
+
+    for (const file of Array.from(files)) {
+      const previewUrl = file.type.startsWith('image/') 
+        ? URL.createObjectURL(file) 
+        : ''
+
+      state.value.evidence.push({
+        id: crypto.randomUUID(),
+        file,
+        previewUrl,
+        annotation: '',
+        fileName: file.name,
+        mimeType: file.type,
+        isUploading: false,
+        isProcessing: false,
+        isProcessed: false,
+        uploadedEvidenceId: null,
+        extractionSummary: null,
+        error: null
+      })
+    }
+  }
+
+  input.click()
+}
+
+function removeEvidence(id: string) {
+  const index = state.value.evidence.findIndex(e => e.id === id)
+  if (index !== -1) {
+    const item = state.value.evidence[index]
+    if (item.previewUrl && item.previewUrl.startsWith('blob:')) {
+      URL.revokeObjectURL(item.previewUrl)
+    }
+    state.value.evidence.splice(index, 1)
+  }
+}
+
+function updateAnnotation(id: string, annotation: string) {
+  const item = state.value.evidence.find(e => e.id === id)
+  if (item) {
+    item.annotation = annotation
+  }
+}
+
+// =============================================================================
+// Processing Functions
+// =============================================================================
+
+async function uploadAndProcessEvidence(item: EvidenceItem): Promise<void> {
+  if (!item.file) {
+    item.error = 'No file to upload'
+    return
+  }
+
+  const accessToken = supabaseSession.value?.access_token 
+    || (await supabase.auth.getSession()).data.session?.access_token
+
+  // Step 1: Upload the file
+  item.isUploading = true
+  item.error = null
+
+  try {
+    const formData = new FormData()
+    formData.append('file', item.file)
+
+    const uploadResult = await $fetch<{ id: string }>('/api/evidence-upload', {
+      method: 'POST',
+      headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : undefined,
+      body: formData as any
+    })
+
+    item.uploadedEvidenceId = uploadResult.id
+    item.isUploading = false
+
+    // Step 2: Process with LLM
+    item.isProcessing = true
+
+    const processResult = await $fetch<{ extraction: any }>('/api/capture/process-evidence', {
+      method: 'POST',
+      headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : undefined,
+      body: {
+        evidenceId: uploadResult.id,
+        userAnnotation: item.annotation
+      }
+    })
+
+    item.extractionSummary = processResult.extraction?.summary || 'Processed successfully'
+    item.isProcessed = true
+  } catch (e: any) {
+    console.error('Evidence processing error:', e)
+    item.error = e?.data?.statusMessage || 'Failed to process evidence'
+  } finally {
+    item.isUploading = false
+    item.isProcessing = false
+  }
+}
+
+async function processAllEvidence(): Promise<void> {
+  state.value.processingStatus = 'Processing evidence...'
+  
+  // Process evidence items sequentially to avoid overwhelming the API
+  for (const item of state.value.evidence) {
+    if (!item.isProcessed && !item.error) {
+      state.value.processingStatus = `Processing: ${item.fileName}...`
+      await uploadAndProcessEvidence(item)
+    }
+  }
+}
+
+async function extractEvents(): Promise<void> {
+  state.value.processingStatus = 'Extracting events from your description...'
+
+  const accessToken = supabaseSession.value?.access_token 
+    || (await supabase.auth.getSession()).data.session?.access_token
+
+  try {
+    const result = await $fetch<any>('/api/capture/extract-events', {
+      method: 'POST',
+      headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : undefined,
+      body: {
+        eventText: effectiveEventText.value,
+        referenceDate: state.value.referenceDate,
+        evidenceSummaries: evidenceWithExtractions.value
+      }
+    })
+
+    state.value.extractionResult = result
+  } catch (e: any) {
+    console.error('Event extraction error:', e)
+    throw new Error(e?.data?.statusMessage || 'Failed to extract events')
+  }
+}
+
+async function submitCapture() {
+  if (!canSubmit.value) return
+
+  isSubmitting.value = true
+  state.value.error = null
+  state.value.step = 'processing'
+
+  try {
+    // Step 1: Process all evidence (if any)
+    if (hasEvidence.value) {
+      await processAllEvidence()
+    }
+
+    // Step 2: Extract events using the event text + evidence summaries
+    await extractEvents()
+
+    // Move to review step
+    state.value.step = 'review'
+  } catch (e: any) {
+    console.error('Capture submission error:', e)
+    state.value.error = e?.message || 'Failed to process capture'
+    state.value.step = 'evidence'
+  } finally {
+    isSubmitting.value = false
+    state.value.processingStatus = ''
+  }
+}
+
+async function confirmAndSave() {
+  if (!state.value.extractionResult) return
+
+  isSubmitting.value = true
+  state.value.error = null
+
+  const accessToken = supabaseSession.value?.access_token 
+    || (await supabase.auth.getSession()).data.session?.access_token
+
+  try {
+    // Save the extracted events to the database
+    const result = await $fetch<{ createdEventIds: string[] }>('/api/capture/save-events', {
+      method: 'POST',
+      headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : undefined,
+      body: {
+        extraction: state.value.extractionResult.extraction,
+        evidenceIds: state.value.evidence
+          .filter(e => e.uploadedEvidenceId)
+          .map(e => e.uploadedEvidenceId)
+      }
+    })
+
+    // Navigate to timeline on success
+    await navigateTo('/timeline')
+  } catch (e: any) {
+    console.error('Save error:', e)
+    state.value.error = e?.data?.statusMessage || 'Failed to save events'
   } finally {
     isSubmitting.value = false
   }
 }
 
-async function extractFromTranscript() {
-  if (!hasTranscript.value || isExtracting.value) {
-    return
-  }
+function goBackToEdit() {
+  state.value.step = 'evidence'
+  state.value.extractionResult = null
+}
 
-  isExtracting.value = true
-  extractionError.value = null
+function startNewCapture() {
+  // Clean up
+  state.value.evidence.forEach(e => {
+    if (e.previewUrl && e.previewUrl.startsWith('blob:')) {
+      URL.revokeObjectURL(e.previewUrl)
+    }
+  })
 
-  try {
-    extractionViewMode.value = 'pretty'
-
-    // Ensure the Supabase access token is sent so serverSupabaseUser can authenticate the request
-    const accessToken =
-      supabaseSession.value?.access_token || (await supabase.auth.getSession()).data.session?.access_token
-
-    const result = await $fetch<any>('/api/voice-extraction', {
-      method: 'POST',
-      headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : undefined,
-      body: {
-        transcript: transcript.value,
-        referenceDate: eventDate.value || undefined
-      }
-    })
-
-    extractionResult.value = result
-  } catch (e: any) {
-    // eslint-disable-next-line no-console
-    console.error(e)
-    extractionError.value = e?.data?.statusMessage || 'Failed to run extraction. Please try again.'
-  } finally {
-    isExtracting.value = false
+  // Reset state
+  state.value = {
+    step: 'event',
+    eventText: '',
+    referenceDate: new Date().toISOString().slice(0, 10),
+    evidence: [],
+    isRecording: false,
+    hasRecording: false,
+    recordingBlob: null,
+    transcript: '',
+    extractionResult: null,
+    processingStatus: '',
+    error: null
   }
 }
+
+// =============================================================================
+// Navigation
+// =============================================================================
+
+function proceedToEvidence() {
+  if (canProceedToEvidence.value) {
+    state.value.step = 'evidence'
+  }
+}
+
+function goBackToEvent() {
+  state.value.step = 'event'
+}
+
+// =============================================================================
+// Helpers
+// =============================================================================
 
 function eventColor(type: string): 'primary' | 'success' | 'info' | 'warning' | 'error' | 'neutral' {
   switch (type) {
-    case 'incident':
-      return 'error'
-    case 'positive':
-      return 'success'
-    case 'medical':
-      return 'info'
-    case 'school':
-      return 'warning'
-    case 'communication':
-      return 'primary'
-    case 'legal':
-      return 'neutral'
-    default:
-      return 'neutral'
+    case 'incident': return 'error'
+    case 'positive': return 'success'
+    case 'medical': return 'info'
+    case 'school': return 'warning'
+    case 'communication': return 'primary'
+    case 'legal': return 'neutral'
+    default: return 'neutral'
   }
 }
 
-function actionPriorityColor(priority: string): 'primary' | 'success' | 'info' | 'warning' | 'error' | 'neutral' {
-  switch (priority) {
-    case 'urgent':
-      return 'error'
-    case 'high':
-      return 'warning'
-    case 'normal':
-      return 'info'
-    case 'low':
-      return 'neutral'
-    default:
-      return 'neutral'
+// Test data loaders
+function loadTestText(sample: string) {
+  const samples: Record<string, string> = {
+    incident: `Tonight the kids were scheduled to be dropped off at 6:00 PM per our custody agreement. Other parent arrived at 6:45 PM with no prior notice. When they arrived, I could smell alcohol on their breath. The children mentioned they hadn't eaten dinner yet. Sarah said "Daddy forgot to feed us again" and looked upset. Tommy was crying and said his tummy hurt from being hungry. I took a photo of the sign-in sheet showing the time.`,
+    positive: `Had a wonderful day with the kids today. We made pancakes together for breakfast, then went to the library for story time. Sarah checked out three chapter books. In the afternoon, Tommy rode his bike without training wheels for the first time! Both kids were in bed by 8:00 PM after baths and bedtime stories.`,
+    neutral: `Today's custody exchange at 5:00 PM at Walmart parking lot. Other parent arrived at 5:02 PM. Children had their overnight bags with clothes, toiletries, and homework. Brief conversation about upcoming school events. Exchange completed at 5:08 PM without incident.`
   }
-}
-
-const extractionUsage = computed(() => {
-  if (!extractionResult.value) {
-    return null
-  }
-
-  return extractionResult.value._usage || extractionResult.value.usage || null
-})
-
-const extractionCost = computed(() => {
-  if (!extractionResult.value) {
-    return null
-  }
-
-  return extractionResult.value._cost || extractionResult.value.cost || null
-})
-
-const commExtractionUsage = computed(() => {
-  if (!commExtractionResult.value) {
-    return null
-  }
-
-  return commExtractionResult.value._usage || commExtractionResult.value.usage || null
-})
-
-const commExtractionCost = computed(() => {
-  if (!commExtractionResult.value) {
-    return null
-  }
-
-  return commExtractionResult.value._cost || commExtractionResult.value.cost || null
-})
-
-function onCommunicationFileChange(event: Event) {
-  const target = event.target as HTMLInputElement | null
-  const file = target?.files?.[0]
-
-  commExtractionError.value = null
-  commExtractionResult.value = null
-
-  if (!file) {
-    communicationImageName.value = ''
-    communicationImageUrl.value = ''
-    communicationImageMimeType.value = ''
-    return
-  }
-
-  communicationImageName.value = file.name
-  communicationImageMimeType.value = file.type || ''
-
-  const reader = new FileReader()
-  reader.onload = () => {
-    if (typeof reader.result === 'string') {
-      // Use a data URL so we don't need to store the image anywhere; OpenAI
-      // can consume data URLs via image_url.
-      communicationImageUrl.value = reader.result
-    }
-  }
-  reader.readAsDataURL(file)
-}
-
-async function extractFromCommunicationImage() {
-  if (!hasCommunicationImage.value || isCommExtracting.value) {
-    return
-  }
-
-  isCommExtracting.value = true
-  commExtractionError.value = null
-  commExtractionResult.value = null
-
-  try {
-    commExtractionViewMode.value = 'pretty'
-
-    // Ensure the Supabase access token is sent so serverSupabaseUser can authenticate the request
-    const accessToken =
-      supabaseSession.value?.access_token || (await supabase.auth.getSession()).data.session?.access_token
-
-    const result = await $fetch<any>('/api/evidence-communication-extract', {
-      method: 'POST',
-      headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : undefined,
-      body: {
-        imageUrl: communicationImageUrl.value.trim(),
-        originalFilename: communicationImageName.value || undefined,
-        mimeType: communicationImageMimeType.value || undefined
-      }
-    })
-
-    commExtractionResult.value = result
-  } catch (e: any) {
-    // eslint-disable-next-line no-console
-    console.error(e)
-    commExtractionError.value = e?.data?.statusMessage || 'Failed to run communication extraction. Please check the image URL and try again.'
-  } finally {
-    isCommExtracting.value = false
-  }
+  state.value.eventText = samples[sample] || samples.incident
 }
 </script>
 
 <template>
   <UDashboardPanel id="capture">
     <template #header>
-      <UDashboardNavbar title="Audio Capture Test">
+      <UDashboardNavbar title="Capture Event">
         <template #leading>
           <UDashboardSidebarCollapse />
+        </template>
+        <template #right>
+          <UButton
+            v-if="state.step !== 'event'"
+            color="neutral"
+            variant="ghost"
+            icon="i-lucide-x"
+            @click="startNewCapture"
+          >
+            Start Over
+          </UButton>
         </template>
       </UDashboardNavbar>
     </template>
 
     <template #body>
-      <div class="max-w-2xl w-full mx-auto space-y-6">
-        <UTabs
-          v-model="activeCaptureTab"
-          :items="[
-            {
-              label: 'Voice \u2192 Events',
-              value: 'audio',
-              icon: 'i-lucide-mic'
-            },
-            {
-              label: 'Image \u2192 Communications Evidence',
-              value: 'communications',
-              icon: 'i-lucide-image'
-            }
-          ]"
-          color="primary"
-        />
+      <div class="max-w-2xl w-full mx-auto">
+        <!-- Progress Steps -->
+        <div class="flex items-center justify-center gap-2 mb-8">
+          <div 
+            class="flex items-center gap-2 px-3 py-1.5 rounded-full text-sm font-medium transition-colors"
+            :class="state.step === 'event' ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground'"
+          >
+            <span class="w-5 h-5 rounded-full bg-current/20 flex items-center justify-center text-xs">1</span>
+            Event
+          </div>
+          <UIcon name="i-lucide-chevron-right" class="text-muted-foreground" />
+          <div 
+            class="flex items-center gap-2 px-3 py-1.5 rounded-full text-sm font-medium transition-colors"
+            :class="state.step === 'evidence' ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground'"
+          >
+            <span class="w-5 h-5 rounded-full bg-current/20 flex items-center justify-center text-xs">2</span>
+            Evidence
+          </div>
+          <UIcon name="i-lucide-chevron-right" class="text-muted-foreground" />
+          <div 
+            class="flex items-center gap-2 px-3 py-1.5 rounded-full text-sm font-medium transition-colors"
+            :class="state.step === 'processing' || state.step === 'review' ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground'"
+          >
+            <span class="w-5 h-5 rounded-full bg-current/20 flex items-center justify-center text-xs">3</span>
+            Review
+          </div>
+        </div>
 
-        <UCard v-if="activeCaptureTab === 'audio'">
+        <!-- Step 1: Event Capture -->
+        <UCard v-if="state.step === 'event'" class="mb-6">
           <template #header>
-            <div class="flex items-center justify-between gap-2">
-              <div>
-                <p class="font-medium text-highlighted">
-                  Audio Capture & Transcription
-                </p>
-                <p class="text-sm text-muted">
-                  Record audio and transcribe it using OpenAI's Whisper model.
-                </p>
-              </div>
-              <UBadge v-if="isRecording" color="warning" variant="subtle">
-                Recording…
-              </UBadge>
-              <UBadge v-else-if="hasRecording" color="info" variant="subtle">
-                Ready to transcribe
-              </UBadge>
+            <div>
+              <p class="font-semibold text-lg text-highlighted">What happened?</p>
+              <p class="text-sm text-muted mt-1">
+                Describe the event using voice or text. Be specific about what occurred, when, and who was involved.
+              </p>
             </div>
           </template>
 
-          <div class="space-y-4">
-            <ClientOnly>
-              <div class="flex flex-wrap items-center gap-3">
-                <UButton
-                  :color="isRecording ? 'error' : 'primary'"
-                  :icon="isRecording ? 'i-lucide-square' : 'i-lucide-mic'"
-                  :variant="isRecording ? 'solid' : 'solid'"
-                  size="lg"
-                  :disabled="!isSupported"
-                  @click="toggleRecording"
-                >
-                  <span v-if="isRecording">
-                    Stop recording
-                  </span>
-                  <span v-else>
-                    Start recording
-                  </span>
-                </UButton>
+          <div class="space-y-6">
+            <!-- Voice Recording -->
+            <div class="space-y-3">
+              <div class="flex items-center justify-between">
+                <p class="text-sm font-medium text-highlighted">Voice Recording</p>
+                <UBadge v-if="state.isRecording" color="error" variant="subtle" class="animate-pulse">
+                  Recording...
+                </UBadge>
+              </div>
 
-                <UButton
-                  color="neutral"
-                  variant="outline"
-                  :loading="isSubmitting"
-                  :disabled="!canTranscribe"
-                  icon="i-lucide-sparkles"
-                  @click="sendForTranscription"
-                >
-                  Transcribe with AI
-                </UButton>
-                
-                <UDropdownMenu 
+              <ClientOnly>
+                <div class="flex flex-wrap items-center gap-3">
+                  <UButton
+                    :color="state.isRecording ? 'error' : 'primary'"
+                    :icon="state.isRecording ? 'i-lucide-square' : 'i-lucide-mic'"
+                    size="lg"
+                    :disabled="!isSupported"
+                    @click="toggleRecording"
+                  >
+                    {{ state.isRecording ? 'Stop Recording' : 'Start Recording' }}
+                  </UButton>
+
+                  <UButton
+                    v-if="state.hasRecording"
+                    color="neutral"
+                    variant="outline"
+                    icon="i-lucide-sparkles"
+                    :loading="isTranscribing"
+                    :disabled="state.isRecording || isTranscribing"
+                    @click="transcribeRecording"
+                  >
+                    Transcribe
+                  </UButton>
+                </div>
+
+                <div v-if="state.hasRecording && recordingUrl" class="mt-3">
+                  <audio :src="recordingUrl" controls class="w-full" />
+                </div>
+
+                <template #fallback>
+                  <p class="text-sm text-muted">Audio recording requires browser support.</p>
+                </template>
+              </ClientOnly>
+            </div>
+
+            <!-- Transcript Display -->
+            <div v-if="state.transcript" class="space-y-2">
+              <p class="text-sm font-medium text-highlighted">Transcript</p>
+              <div class="p-3 rounded-lg bg-muted/50 border border-default">
+                <p class="text-sm text-highlighted whitespace-pre-wrap">{{ state.transcript }}</p>
+              </div>
+            </div>
+
+            <!-- Divider -->
+            <div class="relative">
+              <div class="absolute inset-0 flex items-center">
+                <div class="w-full border-t border-default" />
+              </div>
+              <div class="relative flex justify-center text-xs uppercase">
+                <span class="bg-default px-2 text-muted">or type your note</span>
+              </div>
+            </div>
+
+            <!-- Text Input -->
+            <div class="space-y-2">
+              <div class="flex items-center justify-between">
+                <p class="text-sm font-medium text-highlighted">Written Description</p>
+                <UDropdownMenu
                   :items="[
                     [
-                      {
-                        label: 'Invictus Poem (audio)',
-                        icon: 'i-lucide-book-open',
-                        onSelect: () => loadTestAudio('invictus')
-                      },
-                      {
-                        label: 'Speech Sample (audio)',
-                        icon: 'i-lucide-mic-2',
-                        onSelect: () => loadTestAudio('speech')
-                      },
-                      {
-                        label: 'Music Sample (audio)',
-                        icon: 'i-lucide-music',
-                        onSelect: () => loadTestAudio('music')
-                      }
-                    ],
-                    [
-                      {
-                        label: 'Late exchange incident (text)',
-                        icon: 'i-lucide-file-text',
-                        onSelect: () => loadTestText('incident')
-                      },
-                      {
-                        label: 'Positive parenting day (text)',
-                        icon: 'i-lucide-file-pen',
-                        onSelect: () => loadTestText('positive')
-                      },
-                      {
-                        label: 'Routine neutral exchange (text)',
-                        icon: 'i-lucide-file',
-                        onSelect: () => loadTestText('neutral')
-                      }
+                      { label: 'Late exchange incident', icon: 'i-lucide-alert-triangle', onSelect: () => loadTestText('incident') },
+                      { label: 'Positive parenting day', icon: 'i-lucide-heart', onSelect: () => loadTestText('positive') },
+                      { label: 'Routine exchange', icon: 'i-lucide-calendar', onSelect: () => loadTestText('neutral') }
                     ]
                   ]"
-                  :disabled="isRecording || isSubmitting"
                 >
-                  <UButton
-                    color="neutral"
-                    variant="ghost"
-                    icon="i-lucide-download"
-                    trailing-icon="i-lucide-chevron-down"
-                    :disabled="isRecording || isSubmitting"
-                  >
-                    Load test audio
+                  <UButton color="neutral" variant="ghost" size="xs" icon="i-lucide-file-text" trailing-icon="i-lucide-chevron-down">
+                    Load sample
                   </UButton>
                 </UDropdownMenu>
               </div>
-
-              <div class="space-y-2 w-full">
-                <p class="text-sm font-medium text-highlighted">
-                  Manual text capture
-                </p>
-                <p class="text-xs text-muted">
-                  Type or paste a note when you can&apos;t record audio. Use the dropdown above to load sample text captures.
-                </p>
-                <UTextarea
-                  v-model="captureText"
-                  color="neutral"
-                  variant="outline"
-                  :rows="4"
-                  class="w-full"
-                  placeholder="Example note about an incident or positive parenting moment..."
-                />
-                <div class="flex justify-end">
-                  <UButton
-                    color="primary"
-                    variant="ghost"
-                    size="xs"
-                    :disabled="!hasCaptureText"
-                    @click="transcript = captureText"
-                  >
-                    Use text as transcript
-                  </UButton>
-                </div>
-              </div>
-
-              <div class="space-y-2 w-full">
-                <p class="text-sm font-medium text-highlighted">
-                  Date of this note
-                </p>
-                <p class="text-xs text-muted">
-                  Choose the calendar date when these events happened. It defaults to today so you can quickly log
-                  something that just occurred, but you can change it to document earlier incidents.
-                </p>
-                <UInput
-                  v-model="eventDate"
-                  type="date"
-                  color="neutral"
-                  variant="outline"
-                />
-              </div>
-
-              <div
-                v-if="hasRecording && recordingUrl"
-                class="space-y-1 pt-1"
-              >
-                <p class="text-sm text-muted">
-                  Preview recording
-                </p>
-                <audio
-                  :src="recordingUrl"
-                  controls
-                  class="w-full"
-                />
-              </div>
-
-              <template #fallback>
-                <p class="text-sm text-muted">
-                  Audio capture controls are only available in the browser.
-                </p>
-              </template>
-            </ClientOnly>
-
-            <div class="space-y-2">
-              <p class="text-sm font-medium text-highlighted">
-                Transcript
-              </p>
               <UTextarea
-                :model-value="transcript || 'Transcript will appear here after transcription.'"
-                color="neutral"
-                variant="subtle"
-                readonly
+                v-model="state.eventText"
+                placeholder="Describe what happened. Include details like time, location, people involved, and any concerning behaviors..."
                 :rows="6"
+                color="neutral"
+                variant="outline"
                 class="w-full"
               />
             </div>
 
+            <!-- Reference Date -->
+            <div class="space-y-2">
+              <p class="text-sm font-medium text-highlighted">When did this happen?</p>
+              <p class="text-xs text-muted">
+                Select the date when these events occurred. This helps with accurate timeline placement.
+              </p>
+              <UInput
+                v-model="state.referenceDate"
+                type="date"
+                color="neutral"
+                variant="outline"
+                class="w-48"
+              />
+            </div>
+          </div>
+
+          <template #footer>
             <div class="flex justify-end">
               <UButton
                 color="primary"
-                variant="solid"
-                size="sm"
-                icon="i-lucide-sparkles"
-                :loading="isExtracting"
-                :disabled="!hasTranscript || isExtracting"
-                @click="extractFromTranscript"
+                icon="i-lucide-arrow-right"
+                trailing
+                :disabled="!canProceedToEvidence"
+                @click="proceedToEvidence"
               >
-                Extract structured events
+                Continue to Evidence
               </UButton>
             </div>
-
-            <div
-              v-if="extractionResult"
-              class="space-y-2"
-            >
-              <div class="flex items-center justify-between gap-2">
-                <p class="text-sm font-medium text-highlighted">
-                  Extraction result
-                </p>
-                <div class="inline-flex rounded-lg border border-default overflow-hidden">
-                  <UButton
-                    color="neutral"
-                    size="xs"
-                    :variant="extractionViewMode === 'pretty' ? 'solid' : 'ghost'"
-                    class="rounded-none"
-                    @click="extractionViewMode = 'pretty'"
-                  >
-                    Pretty
-                  </UButton>
-                  <UButton
-                    color="neutral"
-                    size="xs"
-                    :variant="extractionViewMode === 'raw' ? 'solid' : 'ghost'"
-                    class="rounded-none border-l border-default"
-                    @click="extractionViewMode = 'raw'"
-                  >
-                    Raw JSON
-                  </UButton>
-                </div>
-              </div>
-
-              <div
-                v-if="extractionUsage || extractionCost"
-                class="flex flex-wrap items-center gap-2 text-[11px] text-muted"
-              >
-                <span v-if="extractionUsage">
-                  Tokens:
-                  <span class="font-medium text-highlighted">
-                    {{ extractionUsage.total_tokens ?? (extractionUsage.prompt_tokens ?? 0) + (extractionUsage.completion_tokens ?? 0) }}
-                  </span>
-                  <span v-if="extractionUsage.prompt_tokens !== undefined">
-                    (prompt {{ extractionUsage.prompt_tokens }}, completion {{ extractionUsage.completion_tokens ?? 0 }})
-                  </span>
-                </span>
-                <span v-if="extractionCost?.total_usd !== null && extractionCost?.total_usd !== undefined">
-                  • Est. cost:
-                  <span class="font-medium text-highlighted">
-                    ${{ extractionCost.total_usd.toFixed(6) }}
-                  </span>
-                </span>
-              </div>
-
-              <div v-if="extractionViewMode === 'pretty'" class="space-y-4">
-                <div v-if="extractionResult?.extraction?.events?.length" class="space-y-2">
-                  <p class="text-xs font-medium text-muted uppercase tracking-wide">
-                    Events
-                  </p>
-                  <div
-                    v-for="(eventItem, index) in extractionResult.extraction.events"
-                    :key="index"
-                    class="border border-default rounded-lg p-3 space-y-2 bg-subtle"
-                  >
-                    <div class="flex items-start justify-between gap-2">
-                      <div>
-                        <div class="flex items-center gap-2">
-                          <p class="text-sm font-medium text-highlighted">
-                            {{ eventItem.title || 'Untitled event' }}
-                          </p>
-                          <UBadge
-                            v-if="eventItem.type"
-                            :color="eventColor(eventItem.type)"
-                            variant="subtle"
-                            size="xs"
-                            class="uppercase tracking-wide"
-                          >
-                            {{ eventItem.type }}
-                          </UBadge>
-                        </div>
-                        <p
-                          v-if="eventItem.description"
-                          class="text-xs text-muted mt-1"
-                        >
-                          {{ eventItem.description }}
-                        </p>
-                      </div>
-                      <div class="text-right space-y-1">
-                        <p
-                          v-if="eventItem.primary_timestamp"
-                          class="text-xs text-muted"
-                        >
-                          {{ eventItem.primary_timestamp }}
-                        </p>
-                        <p
-                          v-if="eventItem.timestamp_precision"
-                          class="text-[10px] text-muted uppercase tracking-wide"
-                        >
-                          {{ eventItem.timestamp_precision }}
-                        </p>
-                        <p
-                          v-if="eventItem.child_involved"
-                          class="text-[10px] text-success font-medium"
-                        >
-                          Child involved
-                        </p>
-                      </div>
-                    </div>
-
-                    <div class="flex flex-wrap gap-3 text-[11px] text-muted">
-                      <div v-if="eventItem.participants?.primary?.length">
-                        <span class="font-medium text-highlighted">Primary:</span>
-                        {{ eventItem.participants.primary.join(', ') }}
-                      </div>
-                      <div v-if="eventItem.participants?.witnesses?.length">
-                        <span class="font-medium text-highlighted">Witnesses:</span>
-                        {{ eventItem.participants.witnesses.join(', ') }}
-                      </div>
-                      <div v-if="eventItem.participants?.professionals?.length">
-                        <span class="font-medium text-highlighted">Professionals:</span>
-                        {{ eventItem.participants.professionals.join(', ') }}
-                      </div>
-                    </div>
-
-                    <div
-                      v-if="eventItem.patterns_noted?.length"
-                      class="flex flex-wrap gap-1"
-                    >
-                      <UBadge
-                        v-for="pattern in eventItem.patterns_noted"
-                        :key="pattern"
-                        color="info"
-                        variant="soft"
-                        size="xs"
-                      >
-                        {{ pattern }}
-                      </UBadge>
-                    </div>
-
-                    <div
-                      v-if="eventItem.custody_relevance"
-                      class="flex flex-wrap gap-3 text-[11px] text-muted"
-                    >
-                      <div v-if="eventItem.custody_relevance.agreement_violation !== undefined && eventItem.custody_relevance.agreement_violation !== null">
-                        <span class="font-medium text-highlighted">Agreement violation:</span>
-                        {{ eventItem.custody_relevance.agreement_violation ? 'Yes' : 'No' }}
-                      </div>
-                      <div v-if="eventItem.custody_relevance.safety_concern !== undefined && eventItem.custody_relevance.safety_concern !== null">
-                        <span class="font-medium text-highlighted">Safety concern:</span>
-                        {{ eventItem.custody_relevance.safety_concern ? 'Yes' : 'No' }}
-                      </div>
-                      <div v-if="eventItem.custody_relevance.welfare_impact">
-                        <span class="font-medium text-highlighted">Welfare impact:</span>
-                        {{ eventItem.custody_relevance.welfare_impact }}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                <div v-if="extractionResult?.extraction?.action_items?.length" class="space-y-2">
-                  <p class="text-xs font-medium text-muted uppercase tracking-wide">
-                    Action items
-                  </p>
-                  <div
-                    v-for="(action, index) in extractionResult.extraction.action_items"
-                    :key="index"
-                    class="border border-default rounded-lg p-3 flex items-start justify-between gap-2"
-                  >
-                    <div>
-                      <p class="text-xs text-highlighted font-medium">
-                        {{ action.description || 'Action item' }}
-                      </p>
-                      <p
-                        v-if="action.deadline"
-                        class="text-[11px] text-muted mt-0.5"
-                      >
-                        Deadline: {{ action.deadline }}
-                      </p>
-                    </div>
-                    <div class="flex flex-col items-end gap-1">
-                      <UBadge
-                        v-if="action.priority"
-                        :color="actionPriorityColor(action.priority)"
-                        variant="subtle"
-                        size="xs"
-                      >
-                        {{ action.priority }}
-                      </UBadge>
-                      <UBadge
-                        v-if="action.type"
-                        color="neutral"
-                        variant="soft"
-                        size="xs"
-                      >
-                        {{ action.type }}
-                      </UBadge>
-                    </div>
-                  </div>
-                </div>
-
-                <div v-if="extractionResult?.extraction?.metadata" class="space-y-1">
-                  <p class="text-xs font-medium text-muted uppercase tracking-wide">
-                    Metadata
-                  </p>
-                  <div class="grid grid-cols-1 gap-1 text-[11px] text-muted">
-                    <p v-if="extractionResult.extraction.metadata.recording_timestamp">
-                      <span class="font-medium text-highlighted">Recording time:</span>
-                      {{ extractionResult.extraction.metadata.recording_timestamp }}
-                    </p>
-                    <p v-if="extractionResult.extraction.metadata.recording_duration_seconds !== undefined && extractionResult.extraction.metadata.recording_duration_seconds !== null">
-                      <span class="font-medium text-highlighted">Recording duration:</span>
-                      {{ extractionResult.extraction.metadata.recording_duration_seconds }}s
-                    </p>
-                    <p v-if="extractionResult.extraction.metadata.transcription_confidence !== undefined && extractionResult.extraction.metadata.transcription_confidence !== null">
-                      <span class="font-medium text-highlighted">Transcription confidence:</span>
-                      {{ extractionResult.extraction.metadata.transcription_confidence }}
-                    </p>
-                    <p v-if="extractionResult.extraction.metadata.extraction_confidence !== undefined && extractionResult.extraction.metadata.extraction_confidence !== null">
-                      <span class="font-medium text-highlighted">Extraction confidence:</span>
-                      {{ extractionResult.extraction.metadata.extraction_confidence }}
-                    </p>
-                    <p v-if="extractionResult.extraction.metadata.ambiguities?.length">
-                      <span class="font-medium text-highlighted">Ambiguities:</span>
-                      {{ extractionResult.extraction.metadata.ambiguities.join('; ') }}
-                    </p>
-                  </div>
-                </div>
-              </div>
-
-              <div v-else>
-                <p class="text-xs text-muted">
-                  Raw JSON output from the extraction model.
-                </p>
-                <UTextarea
-                  :model-value="JSON.stringify(extractionResult, null, 2)"
-                  color="neutral"
-                  variant="subtle"
-                  readonly
-                  :rows="10"
-                  class="font-mono text-xs w-full"
-                />
-              </div>
-            </div>
-
-            <UAlert
-              v-if="error"
-              color="error"
-              variant="subtle"
-              title="Something went wrong"
-              :description="error"
-            />
-
-            <UAlert
-              v-else-if="extractionError"
-              color="error"
-              variant="subtle"
-              title="Extraction failed"
-              :description="extractionError"
-            />
-
-            <UAlert
-              v-else-if="!isSupported"
-              color="warning"
-              variant="subtle"
-              title="Audio capture not available"
-              description="Your browser does not support microphone access. Try using a modern browser like Chrome, Edge, or Safari."
-            />
-          </div>
+          </template>
         </UCard>
 
-        <UCard v-else>
+        <!-- Step 2: Evidence Attachment -->
+        <UCard v-else-if="state.step === 'evidence'" class="mb-6">
           <template #header>
-            <div class="flex items-center justify-between gap-2">
+            <div class="flex items-start justify-between gap-4">
               <div>
-                <p class="font-medium text-highlighted">
-                  Communications Evidence (Image &rarr; Structured JSON)
-                </p>
-                <p class="text-sm text-muted">
-                  Select a screenshot of texts or email from your device and we&apos;ll extract a structured
-                  communications object plus suggested event/evidence payloads. The original image will be stored
-                  securely in Supabase Storage and linked to an evidence record, so you can reference it later.
+                <p class="font-semibold text-lg text-highlighted">Add Supporting Evidence</p>
+                <p class="text-sm text-muted mt-1">
+                  Attach photos, screenshots, or documents that support your description. Add a note for each to explain what it shows.
                 </p>
               </div>
+              <UBadge color="info" variant="subtle">Optional</UBadge>
             </div>
           </template>
 
-          <div class="space-y-4">
-            <div class="space-y-2">
-              <p class="text-sm font-medium text-highlighted">
-                Image file
-              </p>
-              <p class="text-xs text-muted">
-                Choose a screenshot or photo of a communication (text thread, email, etc.). We&apos;ll read it in the
-                browser and send it directly to the AI API without storing it.
-              </p>
-              <input
-                type="file"
-                accept="image/*"
-                class="block w-full text-sm text-muted file:mr-4 file:py-2 file:px-3 file:rounded-md file:border-0 file:text-sm file:font-medium file:bg-primary/10 file:text-primary hover:file:bg-primary/20"
-                @change="onCommunicationFileChange"
-              />
-              <p
-                v-if="communicationImageName"
-                class="text-xs text-muted"
-              >
-                Selected:
-                <span class="font-medium text-highlighted">
-                  {{ communicationImageName }}
-                </span>
-              </p>
+          <div class="space-y-6">
+            <!-- Event Summary -->
+            <div class="p-3 rounded-lg bg-muted/30 border border-default">
+              <p class="text-xs font-medium text-muted uppercase tracking-wide mb-1">Your Event Description</p>
+              <p class="text-sm text-highlighted line-clamp-3">{{ effectiveEventText }}</p>
             </div>
 
-            <div class="flex justify-end">
+            <!-- Evidence List -->
+            <div v-if="hasEvidence" class="space-y-4">
+              <div 
+                v-for="item in state.evidence" 
+                :key="item.id"
+                class="border border-default rounded-lg overflow-hidden"
+              >
+                <div class="flex gap-4 p-4">
+                  <!-- Preview -->
+                  <div class="w-20 h-20 flex-shrink-0 rounded-md bg-muted/50 overflow-hidden flex items-center justify-center">
+                    <img 
+                      v-if="item.previewUrl" 
+                      :src="item.previewUrl" 
+                      :alt="item.fileName"
+                      class="w-full h-full object-cover"
+                    />
+                    <UIcon v-else name="i-lucide-file" class="w-8 h-8 text-muted-foreground" />
+                  </div>
+
+                  <!-- Details -->
+                  <div class="flex-1 min-w-0 space-y-2">
+                    <div class="flex items-start justify-between gap-2">
+                      <p class="text-sm font-medium text-highlighted truncate">{{ item.fileName }}</p>
+                      <UButton
+                        color="neutral"
+                        variant="ghost"
+                        size="xs"
+                        icon="i-lucide-x"
+                        @click="removeEvidence(item.id)"
+                      />
+                    </div>
+                    <UTextarea
+                      :model-value="item.annotation"
+                      placeholder="What does this show? Why is it relevant?"
+                      :rows="2"
+                      color="neutral"
+                      variant="outline"
+                      class="w-full text-sm"
+                      @update:model-value="updateAnnotation(item.id, $event)"
+                    />
+                  </div>
+                </div>
+
+                <!-- Status -->
+                <div v-if="item.isUploading || item.isProcessing || item.isProcessed || item.error" class="px-4 py-2 bg-muted/30 border-t border-default">
+                  <div v-if="item.error" class="flex items-center gap-2 text-error text-xs">
+                    <UIcon name="i-lucide-alert-circle" />
+                    {{ item.error }}
+                  </div>
+                  <div v-else-if="item.isUploading" class="flex items-center gap-2 text-muted text-xs">
+                    <UIcon name="i-lucide-loader-2" class="animate-spin" />
+                    Uploading...
+                  </div>
+                  <div v-else-if="item.isProcessing" class="flex items-center gap-2 text-info text-xs">
+                    <UIcon name="i-lucide-sparkles" class="animate-pulse" />
+                    Analyzing with AI...
+                  </div>
+                  <div v-else-if="item.isProcessed" class="flex items-center gap-2 text-success text-xs">
+                    <UIcon name="i-lucide-check-circle" />
+                    Processed
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Add Evidence Button -->
+            <UButton
+              color="neutral"
+              variant="outline"
+              icon="i-lucide-plus"
+              class="w-full"
+              @click="addEvidence"
+            >
+              Add Evidence
+            </UButton>
+          </div>
+
+          <template #footer>
+            <div class="flex items-center justify-between">
+              <UButton
+                color="neutral"
+                variant="ghost"
+                icon="i-lucide-arrow-left"
+                @click="goBackToEvent"
+              >
+                Back
+              </UButton>
               <UButton
                 color="primary"
-                variant="solid"
-                size="sm"
                 icon="i-lucide-sparkles"
-                :loading="isCommExtracting"
-                :disabled="!hasCommunicationImage || isCommExtracting"
-                @click="extractFromCommunicationImage"
+                :loading="isSubmitting"
+                :disabled="!canSubmit"
+                @click="submitCapture"
               >
-                Extract communications evidence
+                {{ hasEvidence ? 'Process & Extract Events' : 'Extract Events' }}
               </UButton>
             </div>
+          </template>
+        </UCard>
 
-            <div
-              v-if="commExtractionResult"
-              class="space-y-2"
-            >
-              <div class="flex items-center justify-between gap-2">
-                <p class="text-sm font-medium text-highlighted">
-                  Extraction result
-                </p>
-                <div class="inline-flex rounded-lg border border-default overflow-hidden">
-                  <UButton
-                    color="neutral"
-                    size="xs"
-                    :variant="commExtractionViewMode === 'pretty' ? 'solid' : 'ghost'"
-                    class="rounded-none"
-                    @click="commExtractionViewMode = 'pretty'"
-                  >
-                    Pretty
-                  </UButton>
-                  <UButton
-                    color="neutral"
-                    size="xs"
-                    :variant="commExtractionViewMode === 'raw' ? 'solid' : 'ghost'"
-                    class="rounded-none border-l border-default"
-                    @click="commExtractionViewMode = 'raw'"
-                  >
-                    Raw JSON
-                  </UButton>
-                </div>
+        <!-- Step 3a: Processing -->
+        <UCard v-else-if="state.step === 'processing'" class="mb-6">
+          <div class="py-12 text-center space-y-4">
+            <div class="w-16 h-16 mx-auto rounded-full bg-primary/10 flex items-center justify-center">
+              <UIcon name="i-lucide-sparkles" class="w-8 h-8 text-primary animate-pulse" />
+            </div>
+            <div>
+              <p class="font-semibold text-lg text-highlighted">Processing Your Capture</p>
+              <p class="text-sm text-muted mt-1">{{ state.processingStatus || 'Please wait...' }}</p>
+            </div>
+            <div class="w-48 mx-auto">
+              <div class="h-1.5 bg-muted rounded-full overflow-hidden">
+                <div class="h-full bg-primary rounded-full animate-pulse" style="width: 60%" />
               </div>
+            </div>
+          </div>
+        </UCard>
 
+        <!-- Step 3b: Review -->
+        <UCard v-else-if="state.step === 'review'" class="mb-6">
+          <template #header>
+            <div>
+              <p class="font-semibold text-lg text-highlighted">Review Extracted Events</p>
+              <p class="text-sm text-muted mt-1">
+                Review the events we extracted from your description. Confirm to save them to your timeline.
+              </p>
+            </div>
+          </template>
+
+          <div class="space-y-6">
+            <!-- Extracted Events -->
+            <div v-if="state.extractionResult?.extraction?.events?.length" class="space-y-4">
               <div
-                v-if="commExtractionUsage || commExtractionCost"
-                class="flex flex-wrap items-center gap-2 text-[11px] text-muted"
+                v-for="(event, index) in state.extractionResult.extraction.events"
+                :key="index"
+                class="border border-default rounded-lg p-4 space-y-3"
               >
-                <span v-if="commExtractionUsage">
-                  Tokens:
-                  <span class="font-medium text-highlighted">
-                    {{ commExtractionUsage.total_tokens ?? (commExtractionUsage.input_tokens ?? 0) + (commExtractionUsage.output_tokens ?? 0) }}
-                  </span>
-                </span>
-                <span v-if="commExtractionCost?.total_usd !== null && commExtractionCost?.total_usd !== undefined">
-                  • Est. cost:
-                  <span class="font-medium text-highlighted">
-                    ${{ commExtractionCost.total_usd.toFixed(6) }}
-                  </span>
-                </span>
-              </div>
-
-              <div v-if="commExtractionViewMode === 'pretty'" class="space-y-4">
-                <div v-if="commExtractionResult?.extraction?.communications?.length" class="space-y-2">
-                  <p class="text-xs font-medium text-muted uppercase tracking-wide">
-                    Communications
-                  </p>
-                  <div
-                    v-for="(comm, index) in commExtractionResult.extraction.communications"
-                    :key="index"
-                    class="border border-default rounded-lg p-3 space-y-2 bg-subtle"
-                  >
-                    <div class="flex items-start justify-between gap-2">
-                      <div>
-                        <div class="flex items-center gap-2">
-                          <p class="text-sm font-medium text-highlighted">
-                            {{ comm.summary || 'Communication' }}
-                          </p>
-                          <UBadge
-                            v-if="comm.medium"
-                            color="info"
-                            variant="subtle"
-                            size="xs"
-                            class="uppercase tracking-wide"
-                          >
-                            {{ comm.medium }}
-                          </UBadge>
-                          <UBadge
-                            v-if="comm.direction"
-                            color="neutral"
-                            variant="soft"
-                            size="xs"
-                            class="uppercase tracking-wide"
-                          >
-                            {{ comm.direction }}
-                          </UBadge>
-                        </div>
-                        <p
-                          v-if="comm.body_text"
-                          class="text-xs text-muted mt-1 line-clamp-3"
-                        >
-                          {{ comm.body_text }}
-                        </p>
-                      </div>
-                      <div class="text-right space-y-1">
-                        <p
-                          v-if="comm.sent_at"
-                          class="text-xs text-muted"
-                        >
-                          {{ comm.sent_at }}
-                        </p>
-                        <p
-                          v-if="comm.timestamp_precision"
-                          class="text-[10px] text-muted uppercase tracking-wide"
-                        >
-                          {{ comm.timestamp_precision }}
-                        </p>
-                      </div>
+                <div class="flex items-start justify-between gap-3">
+                  <div class="flex-1">
+                    <div class="flex items-center gap-2 mb-1">
+                      <p class="font-medium text-highlighted">{{ event.title || 'Untitled Event' }}</p>
+                      <UBadge
+                        :color="eventColor(event.type)"
+                        variant="subtle"
+                        size="xs"
+                        class="uppercase"
+                      >
+                        {{ event.type }}
+                      </UBadge>
                     </div>
-
-                    <div class="flex flex-wrap gap-3 text-[11px] text-muted">
-                      <div v-if="comm.participants?.from">
-                        <span class="font-medium text-highlighted">From:</span>
-                        {{ comm.participants.from }}
-                      </div>
-                      <div v-if="comm.participants?.to?.length">
-                        <span class="font-medium text-highlighted">To:</span>
-                        {{ comm.participants.to.join(', ') }}
-                      </div>
-                      <div v-if="comm.participants?.others?.length">
-                        <span class="font-medium text-highlighted">Others:</span>
-                        {{ comm.participants.others.join(', ') }}
-                      </div>
-                    </div>
-
-                    <div
-                      v-if="comm.welfare_impact"
-                      class="text-[11px] text-muted"
-                    >
-                      <span class="font-medium text-highlighted">Welfare impact:</span>
-                      {{ comm.welfare_impact }}
-                    </div>
-
-                    <div class="flex justify-end">
-                      <UModal>
-                        <UButton
-                          color="neutral"
-                          variant="ghost"
-                          size="xs"
-                          icon="i-lucide-info"
-                        >
-                          View details
-                        </UButton>
-
-                        <template #content>
-                          <UCard>
-                            <template #header>
-                              <div class="flex items-center justify-between gap-2">
-                                <p class="font-medium text-highlighted">
-                                  Communication details
-                                </p>
-                                <UBadge
-                                  v-if="comm.medium"
-                                  color="info"
-                                  variant="subtle"
-                                  size="xs"
-                                  class="uppercase tracking-wide"
-                                >
-                                  {{ comm.medium }}
-                                </UBadge>
-                              </div>
-                            </template>
-
-                            <div class="space-y-3">
-                              <div v-if="comm.body_text">
-                                <p class="text-xs font-medium text-highlighted">
-                                  Body text
-                                </p>
-                                <p class="text-xs text-muted whitespace-pre-wrap">
-                                  {{ comm.body_text }}
-                                </p>
-                              </div>
-
-                              <div v-if="comm.participants" class="space-y-1 text-[11px] text-muted">
-                                <p class="text-xs font-medium text-highlighted">
-                                  Participants
-                                </p>
-                                <p v-if="comm.participants.from">
-                                  <span class="font-medium text-highlighted">From:</span>
-                                  {{ comm.participants.from }}
-                                </p>
-                                <p v-if="comm.participants.to?.length">
-                                  <span class="font-medium text-highlighted">To:</span>
-                                  {{ comm.participants.to.join(', ') }}
-                                </p>
-                                <p v-if="comm.participants.others?.length">
-                                  <span class="font-medium text-highlighted">Others:</span>
-                                  {{ comm.participants.others.join(', ') }}
-                                </p>
-                              </div>
-
-                              <div class="grid grid-cols-1 gap-1 text-[11px] text-muted">
-                                <p v-if="comm.child_involved !== undefined && comm.child_involved !== null">
-                                  <span class="font-medium text-highlighted">Child involved:</span>
-                                  {{ comm.child_involved ? 'Yes' : 'No' }}
-                                </p>
-                                <p v-if="comm.agreement_violation !== undefined && comm.agreement_violation !== null">
-                                  <span class="font-medium text-highlighted">Agreement violation:</span>
-                                  {{ comm.agreement_violation ? 'Yes' : 'No' }}
-                                </p>
-                                <p v-if="comm.safety_concern !== undefined && comm.safety_concern !== null">
-                                  <span class="font-medium text-highlighted">Safety concern:</span>
-                                  {{ comm.safety_concern ? 'Yes' : 'No' }}
-                                </p>
-                                <p v-if="comm.welfare_impact">
-                                  <span class="font-medium text-highlighted">Welfare impact:</span>
-                                  {{ comm.welfare_impact }}
-                                </p>
-                              </div>
-
-                              <div>
-                                <p class="text-xs font-medium text-highlighted mb-1">
-                                  Full JSON
-                                </p>
-                                <UTextarea
-                                  :model-value="JSON.stringify(comm, null, 2)"
-                                  color="neutral"
-                                  variant="subtle"
-                                  readonly
-                                  :rows="10"
-                                  class="font-mono text-[11px] w-full"
-                                />
-                              </div>
-                            </div>
-                          </UCard>
-                        </template>
-                      </UModal>
-                    </div>
+                    <p class="text-sm text-muted">{{ event.description }}</p>
                   </div>
-                </div>
-
-                <div v-if="commExtractionResult?.extraction?.db_suggestions?.events?.length" class="space-y-2">
-                  <p class="text-xs font-medium text-muted uppercase tracking-wide">
-                    Suggested event (for events table)
-                  </p>
-                  <div
-                    v-for="(eventItem, index) in commExtractionResult.extraction.db_suggestions.events"
-                    :key="index"
-                    class="border border-dashed border-default rounded-lg p-3 space-y-2"
-                  >
-                    <div class="flex items-start justify-between gap-2">
-                      <div>
-                        <div class="flex items-center gap-2">
-                          <p class="text-sm font-medium text-highlighted">
-                            {{ eventItem.title || 'Suggested communication event' }}
-                          </p>
-                          <UBadge
-                            v-if="eventItem.type"
-                            :color="eventColor(eventItem.type)"
-                            variant="subtle"
-                            size="xs"
-                            class="uppercase tracking-wide"
-                          >
-                            {{ eventItem.type }}
-                          </UBadge>
-                        </div>
-                        <p
-                          v-if="eventItem.description"
-                          class="text-xs text-muted mt-1"
-                        >
-                          {{ eventItem.description }}
-                        </p>
-                      </div>
-                      <div class="text-right space-y-1">
-                        <p
-                          v-if="eventItem.primary_timestamp"
-                          class="text-xs text-muted"
-                        >
-                          {{ eventItem.primary_timestamp }}
-                        </p>
-                        <p
-                          v-if="eventItem.timestamp_precision"
-                          class="text-[10px] text-muted uppercase tracking-wide"
-                        >
-                          {{ eventItem.timestamp_precision }}
-                        </p>
-                      </div>
-                    </div>
-
-                    <div class="flex justify-end">
-                      <UModal>
-                        <UButton
-                          color="neutral"
-                          variant="ghost"
-                          size="xs"
-                          icon="i-lucide-info"
-                        >
-                          View event JSON
-                        </UButton>
-
-                        <template #content>
-                          <UCard>
-                            <template #header>
-                              <p class="font-medium text-highlighted">
-                                Suggested event JSON
-                              </p>
-                            </template>
-
-                            <UTextarea
-                              :model-value="JSON.stringify(eventItem, null, 2)"
-                              color="neutral"
-                              variant="subtle"
-                              readonly
-                              :rows="14"
-                              class="font-mono text-[11px] w-full"
-                            />
-                          </UCard>
-                        </template>
-                      </UModal>
-                    </div>
-                  </div>
-                </div>
-
-                <div v-if="commExtractionResult?.extraction?.db_suggestions?.evidence?.length" class="space-y-2">
-                  <p class="text-xs font-medium text-muted uppercase tracking-wide">
-                    Suggested evidence (for evidence table)
-                  </p>
-                  <div
-                    v-for="(ev, index) in commExtractionResult.extraction.db_suggestions.evidence"
-                    :key="index"
-                    class="border border-dashed border-default rounded-lg p-3 space-y-2"
-                  >
-                    <div class="flex items-start justify-between gap-2">
-                      <div>
-                        <div class="flex items-center gap-2">
-                          <p class="text-sm font-medium text-highlighted">
-                            {{ ev.summary || 'Suggested evidence summary' }}
-                          </p>
-                          <UBadge
-                            v-if="ev.source_type"
-                            color="primary"
-                            variant="subtle"
-                            size="xs"
-                            class="uppercase tracking-wide"
-                          >
-                            {{ ev.source_type }}
-                          </UBadge>
-                        </div>
-                        <p
-                          v-if="ev.tags?.length"
-                          class="text-[11px] text-muted mt-1"
-                        >
-                          <span class="font-medium text-highlighted">Tags:</span>
-                          {{ ev.tags.join(', ') }}
-                        </p>
-                      </div>
-                    </div>
-
-                    <div class="flex justify-end">
-                      <UModal>
-                        <UButton
-                          color="neutral"
-                          variant="ghost"
-                          size="xs"
-                          icon="i-lucide-info"
-                        >
-                          View evidence JSON
-                        </UButton>
-
-                        <template #content>
-                          <UCard>
-                            <template #header>
-                              <p class="font-medium text-highlighted">
-                                Suggested evidence JSON
-                              </p>
-                            </template>
-
-                            <UTextarea
-                              :model-value="JSON.stringify(ev, null, 2)"
-                              color="neutral"
-                              variant="subtle"
-                              readonly
-                              :rows="14"
-                              class="font-mono text-[11px] w-full"
-                            />
-                          </UCard>
-                        </template>
-                      </UModal>
-                    </div>
-                  </div>
-                </div>
-
-                <div v-if="commExtractionResult?.extraction?.metadata" class="space-y-1">
-                  <p class="text-xs font-medium text-muted uppercase tracking-wide">
-                    Metadata
-                  </p>
-                  <div class="grid grid-cols-1 gap-1 text-[11px] text-muted">
-                    <p v-if="commExtractionResult.extraction.metadata.image_analysis_confidence !== undefined && commExtractionResult.extraction.metadata.image_analysis_confidence !== null">
-                      <span class="font-medium text-highlighted">Image analysis confidence:</span>
-                      {{ commExtractionResult.extraction.metadata.image_analysis_confidence }}
+                  <div class="text-right text-xs text-muted">
+                    <p v-if="event.primary_timestamp">
+                      {{ new Date(event.primary_timestamp).toLocaleDateString() }}
                     </p>
-                    <p v-if="commExtractionResult.extraction.metadata.ambiguities?.length">
-                      <span class="font-medium text-highlighted">Ambiguities:</span>
-                      {{ commExtractionResult.extraction.metadata.ambiguities.join('; ') }}
-                    </p>
+                    <p v-if="event.location" class="mt-1">{{ event.location }}</p>
                   </div>
                 </div>
-              </div>
 
-              <div v-else>
-                <p class="text-xs text-muted">
-                  Raw JSON output from the communications extraction model.
-                </p>
-                <UTextarea
-                  :model-value="JSON.stringify(commExtractionResult, null, 2)"
-                  color="neutral"
-                  variant="subtle"
-                  readonly
-                  :rows="10"
-                  class="font-mono text-xs w-full"
-                />
+                <!-- Flags -->
+                <div class="flex flex-wrap gap-2">
+                  <UBadge v-if="event.child_involved" color="warning" variant="soft" size="xs">
+                    Child involved
+                  </UBadge>
+                  <UBadge v-if="event.custody_relevance?.agreement_violation" color="error" variant="soft" size="xs">
+                    Agreement violation
+                  </UBadge>
+                  <UBadge v-if="event.custody_relevance?.safety_concern" color="error" variant="soft" size="xs">
+                    Safety concern
+                  </UBadge>
+                </div>
               </div>
             </div>
 
-            <UAlert
-              v-if="commExtractionError"
-              color="error"
-              variant="subtle"
-              title="Extraction failed"
-              :description="commExtractionError"
-            />
+            <!-- No Events -->
+            <div v-else class="py-8 text-center">
+              <UIcon name="i-lucide-inbox" class="w-12 h-12 mx-auto text-muted-foreground mb-3" />
+              <p class="text-muted">No events were extracted from your description.</p>
+            </div>
 
+            <!-- Linked Evidence -->
+            <div v-if="hasEvidence && evidenceWithExtractions.length" class="space-y-2">
+              <p class="text-xs font-medium text-muted uppercase tracking-wide">Linked Evidence</p>
+              <div class="flex flex-wrap gap-2">
+                <UBadge
+                  v-for="(ev, idx) in state.evidence.filter(e => e.isProcessed)"
+                  :key="idx"
+                  color="info"
+                  variant="soft"
+                >
+                  {{ ev.fileName }}
+                </UBadge>
+              </div>
+            </div>
           </div>
+
+          <template #footer>
+            <div class="flex items-center justify-between">
+              <UButton
+                color="neutral"
+                variant="ghost"
+                icon="i-lucide-pencil"
+                @click="goBackToEdit"
+              >
+                Edit
+              </UButton>
+              <UButton
+                color="primary"
+                icon="i-lucide-check"
+                :loading="isSubmitting"
+                :disabled="!state.extractionResult?.extraction?.events?.length"
+                @click="confirmAndSave"
+              >
+                Save to Timeline
+              </UButton>
+            </div>
+          </template>
         </UCard>
+
+        <!-- Error Alert -->
+        <UAlert
+          v-if="state.error"
+          color="error"
+          variant="subtle"
+          icon="i-lucide-alert-circle"
+          :title="state.error"
+          class="mb-6"
+        />
       </div>
     </template>
   </UDashboardPanel>
 </template>
-
-
