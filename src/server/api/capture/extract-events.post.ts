@@ -134,26 +134,83 @@ export default defineEventHandler(async (event) => {
       userDisplayName = profile.full_name
     }
 
-    // Load case context
+    // Load richer case context so the model understands the broader situation.
     let caseContext = 'The speaker is involved in a family court / custody / divorce matter.'
 
     const { data: caseRow } = await supabase
       .from('cases')
-      .select('case_type, stage, your_role, opposing_party_name, goals_summary')
+      .select(
+        [
+          'title',
+          'case_number',
+          'jurisdiction_state',
+          'jurisdiction_county',
+          'court_name',
+          'case_type',
+          'stage',
+          'your_role',
+          'opposing_party_name',
+          'opposing_party_role',
+          'children_count',
+          'children_summary',
+          'parenting_schedule',
+          'goals_summary',
+          'risk_flags',
+          'next_court_date'
+        ].join(', ')
+      )
       .eq('user_id', userId)
       .order('created_at', { ascending: false })
       .limit(1)
       .maybeSingle()
 
     if (caseRow) {
-      const parts: string[] = []
-      if (caseRow.case_type) parts.push(`case type: ${caseRow.case_type}`)
-      if (caseRow.your_role) parts.push(`your role: ${caseRow.your_role}`)
-      if (caseRow.stage) parts.push(`stage: ${caseRow.stage}`)
-      if (caseRow.opposing_party_name) parts.push(`opposing party: ${caseRow.opposing_party_name}`)
-      if (caseRow.goals_summary) parts.push(`user goals: ${caseRow.goals_summary}`)
-      if (parts.length) {
-        caseContext = `The speaker is involved in a family law matter: ${parts.join('; ')}.`
+      const lines: string[] = ['CASE CONTEXT:']
+
+      if (caseRow.title) lines.push(`- Case title: ${caseRow.title}`)
+      if (caseRow.case_number) lines.push(`- Case number: ${caseRow.case_number}`)
+
+      if (caseRow.jurisdiction_state || caseRow.jurisdiction_county) {
+        const parts: string[] = []
+        if (caseRow.jurisdiction_county) parts.push(caseRow.jurisdiction_county)
+        if (caseRow.jurisdiction_state) parts.push(caseRow.jurisdiction_state)
+        lines.push(`- Jurisdiction: ${parts.join(', ')}`)
+      }
+
+      if (caseRow.court_name) lines.push(`- Court: ${caseRow.court_name}`)
+      if (caseRow.case_type) lines.push(`- Case type: ${caseRow.case_type}`)
+      if (caseRow.stage) lines.push(`- Case stage: ${caseRow.stage}`)
+      if (caseRow.your_role) lines.push(`- Speaker role: ${caseRow.your_role}`)
+      if (caseRow.opposing_party_name) {
+        const roleSuffix = caseRow.opposing_party_role ? ` (${caseRow.opposing_party_role})` : ''
+        lines.push(`- Opposing party: ${caseRow.opposing_party_name}${roleSuffix}`)
+      }
+
+      if (typeof caseRow.children_count === 'number') {
+        lines.push(`- Number of children: ${caseRow.children_count}`)
+      }
+      if (caseRow.children_summary) {
+        lines.push(`- Children summary: ${caseRow.children_summary}`)
+      }
+      if (caseRow.parenting_schedule) {
+        lines.push(`- Parenting schedule: ${caseRow.parenting_schedule}`)
+      }
+
+      if (caseRow.goals_summary) {
+        lines.push(`- Parent goals: ${caseRow.goals_summary}`)
+      }
+
+      if (Array.isArray(caseRow.risk_flags) && caseRow.risk_flags.length > 0) {
+        lines.push(`- Risk flags: ${caseRow.risk_flags.join(', ')}`)
+      }
+
+      if (caseRow.next_court_date) {
+        const nextCourtIso = new Date(caseRow.next_court_date).toISOString()
+        lines.push(`- Next court date: ${nextCourtIso}`)
+      }
+
+      if (lines.length > 1) {
+        caseContext = lines.join('\n')
       }
     }
 
