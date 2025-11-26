@@ -26,7 +26,8 @@ export default defineNuxtConfig({
         { rel: 'icon', type: 'image/svg+xml', href: '/favicon.svg' },
         { rel: 'icon', type: 'image/png', sizes: '96x96', href: '/favicon-96x96.png' },
         { rel: 'apple-touch-icon', sizes: '180x180', href: '/apple-touch-icon.png' },
-        { rel: 'manifest', href: '/site.webmanifest' }
+        { rel: 'manifest', href: '/site.webmanifest' },
+        { rel: 'canonical', href: 'https://www.daylight.legal' }
       ],
       meta: [
         // Basic SEO
@@ -42,11 +43,19 @@ export default defineNuxtConfig({
         { property: 'og:title', content: 'Daylight – Just talk. We handle the rest.' },
         { property: 'og:description', content: 'Stop carrying custody documentation in your head. Daylight turns voice notes into organized timelines your lawyer can actually use.' },
         { property: 'og:locale', content: 'en_US' },
+        { property: 'og:url', content: 'https://www.daylight.legal' },
+        { property: 'og:image', content: 'https://www.daylight.legal/og-image-card.png' },
+        { property: 'og:image:width', content: '1200' },
+        { property: 'og:image:height', content: '630' },
+        { property: 'og:image:alt', content: 'Daylight – AI-powered custody documentation' },
 
         // Twitter Card
         { name: 'twitter:card', content: 'summary_large_image' },
         { name: 'twitter:title', content: 'Daylight – Just talk. We handle the rest.' },
         { name: 'twitter:description', content: 'Stop carrying custody documentation in your head. Daylight turns voice notes into organized timelines your lawyer can actually use.' },
+        { name: 'twitter:image', content: 'https://www.daylight.legal/og-image-card.png' },
+        { name: 'twitter:image:alt', content: 'Daylight – AI-powered custody documentation' },
+        { name: 'twitter:domain', content: 'daylight.legal' },
 
         // App-specific
         { name: 'application-name', content: 'Daylight' },
@@ -64,9 +73,11 @@ export default defineNuxtConfig({
             '@context': 'https://schema.org',
             '@type': 'SoftwareApplication',
             'name': 'Daylight',
+            'url': 'https://www.daylight.legal',
             'applicationCategory': 'LegalApplication',
             'operatingSystem': 'Web',
             'description': 'AI-powered evidence and timeline platform for parents navigating family court. Transform voice notes and screenshots into court-ready documentation.',
+            'image': 'https://www.daylight.legal/og-image-card.png',
             'offers': {
               '@type': 'Offer',
               'price': '0',
@@ -80,7 +91,12 @@ export default defineNuxtConfig({
               'Court-ready PDF exports',
               'Evidence organization',
               'Pattern detection'
-            ]
+            ],
+            'publisher': {
+              '@type': 'Organization',
+              'name': 'Daylight',
+              'url': 'https://www.daylight.legal'
+            }
           })
         }
       ]
@@ -96,7 +112,7 @@ export default defineNuxtConfig({
     // Server-only secrets
     supabaseServiceKey: process.env.SUPABASE_SECRET_KEY || '',
     public: {
-      baseUrl: process.env.PUBLIC_BASE_URL || 'http://localhost:3000'
+      baseUrl: process.env.PUBLIC_BASE_URL || 'https://www.daylight.legal'
     }
   },
 
