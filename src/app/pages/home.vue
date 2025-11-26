@@ -17,9 +17,16 @@ interface HomeResponse {
   recentEvents: TimelineEvent[]
 }
 
+// Get user's timezone
+const { timezone, formatDate: formatTzDate } = useTimezone()
+
 // Use useFetch with cookie headers for SSR compatibility
+// Pass timezone header so server can calculate "today" correctly
 const { data, status, error, refresh } = await useFetch<HomeResponse>('/api/home', {
-  headers: useRequestHeaders(['cookie'])
+  headers: {
+    ...useRequestHeaders(['cookie']),
+    'X-Timezone': timezone.value
+  }
 })
 
 // Watch for session changes and refresh data
@@ -30,12 +37,17 @@ watch(session, (newSession) => {
   }
 })
 
+// Refresh when timezone changes
+watch(timezone, () => {
+  refresh()
+})
+
 const router = useRouter()
 
 function formatDate (value?: string) {
   if (!value) { return 'Not set' }
 
-  return new Date(value).toLocaleString(undefined, {
+  return formatTzDate(value, {
     month: 'short',
     day: 'numeric',
     hour: '2-digit',
@@ -46,7 +58,7 @@ function formatDate (value?: string) {
 function formatDay (value?: string) {
   if (!value) { return '—' }
 
-  return new Date(value).toLocaleDateString(undefined, {
+  return formatTzDate(value, {
     month: 'short',
     day: 'numeric',
     weekday: 'short'

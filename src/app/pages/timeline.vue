@@ -1,9 +1,19 @@
 <script setup lang="ts">
 import type { EventType, TimelineEvent } from '~/types'
+import { 
+  getDateStringInTimezone, 
+  getStartOfDayInTimezone 
+} from '~/composables/useTimezone'
+
+// Get user's timezone
+const { timezone, formatDate: formatTzDate } = useTimezone()
 
 // Fetch timeline via SSR-aware useFetch and cookie-based auth
 const { data, status, error, refresh } = await useFetch<TimelineEvent[]>('/api/timeline', {
-  headers: useRequestHeaders(['cookie'])
+  headers: {
+    ...useRequestHeaders(['cookie']),
+    'X-Timezone': timezone.value
+  }
 })
 
 const session = useSupabaseSession()
@@ -90,49 +100,62 @@ const typeColors: Record<EventType, 'success' | 'error' | 'info' | 'warning' | '
 }
 
 // Handle date preset selection
+// Uses user's timezone for accurate "today", "this week" calculations
 function selectDatePreset(preset: string) {
   selectedPreset.value = preset
   const now = new Date()
-  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+  const tz = timezone.value
+  
+  // Get today's date string in user's timezone (YYYY-MM-DD)
+  const todayStr = getDateStringInTimezone(now, tz)
+  const [year, month, day] = todayStr.split('-').map(Number)
   
   switch (preset) {
     case 'today':
       dateRange.value = {
-        start: today.toISOString().split('T')[0],
-        end: today.toISOString().split('T')[0]
+        start: todayStr,
+        end: todayStr
       }
       break
-    case 'week':
-      const weekStart = new Date(today)
-      weekStart.setDate(today.getDate() - today.getDay())
+    case 'week': {
+      // Calculate start of week (Sunday) in user's timezone
+      const tempDate = new Date(Date.UTC(year, month - 1, day))
+      const dayOfWeek = tempDate.getUTCDay() // 0 = Sunday
+      const weekStartDate = new Date(Date.UTC(year, month - 1, day - dayOfWeek))
+      const weekStartStr = getDateStringInTimezone(weekStartDate, tz)
       dateRange.value = {
-        start: weekStart.toISOString().split('T')[0],
-        end: today.toISOString().split('T')[0]
+        start: weekStartStr,
+        end: todayStr
       }
       break
-    case 'month':
-      const monthStart = new Date(today.getFullYear(), today.getMonth(), 1)
+    }
+    case 'month': {
+      // First day of current month
+      const monthStartStr = `${year}-${String(month).padStart(2, '0')}-01`
       dateRange.value = {
-        start: monthStart.toISOString().split('T')[0],
-        end: today.toISOString().split('T')[0]
+        start: monthStartStr,
+        end: todayStr
       }
       break
-    case '30days':
-      const thirtyDaysAgo = new Date(today)
-      thirtyDaysAgo.setDate(today.getDate() - 30)
+    }
+    case '30days': {
+      const thirtyDaysAgo = new Date(Date.UTC(year, month - 1, day - 30))
+      const startStr = getDateStringInTimezone(thirtyDaysAgo, tz)
       dateRange.value = {
-        start: thirtyDaysAgo.toISOString().split('T')[0],
-        end: today.toISOString().split('T')[0]
+        start: startStr,
+        end: todayStr
       }
       break
-    case '90days':
-      const ninetyDaysAgo = new Date(today)
-      ninetyDaysAgo.setDate(today.getDate() - 90)
+    }
+    case '90days': {
+      const ninetyDaysAgo = new Date(Date.UTC(year, month - 1, day - 90))
+      const startStr = getDateStringInTimezone(ninetyDaysAgo, tz)
       dateRange.value = {
-        start: ninetyDaysAgo.toISOString().split('T')[0],
-        end: today.toISOString().split('T')[0]
+        start: startStr,
+        end: todayStr
       }
       break
+    }
     case 'all':
     default:
       dateRange.value = { start: null, end: null }
@@ -185,10 +208,11 @@ const filteredEvents = computed(() => {
     events = events.filter(event => selectedTypes.value.includes(event.type))
   }
 
-  // Filter by date range
+  // Filter by date range (using user's timezone for accurate date comparison)
   if (dateRange.value.start || dateRange.value.end) {
     events = events.filter(event => {
-      const eventDate = new Date(event.timestamp).toISOString().split('T')[0]
+      // Get the event's date in the user's timezone
+      const eventDate = getDateStringInTimezone(new Date(event.timestamp), timezone.value)
       
       if (dateRange.value.start && eventDate < dateRange.value.start) {
         return false
@@ -237,9 +261,32 @@ if (process.client) {
 }
 
 function formatDate(value: string) {
-  return new Date(value).toLocaleString(undefined, {
+  return formatTzDate(value, {
     month: 'short',
     day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit'
+  })
+}
+
+// Helper to get date string for grouping events by day
+function getEventDateString(timestamp: string): string {
+  return getDateStringInTimezone(new Date(timestamp), timezone.value)
+}
+
+// Format a date string for display in date separators
+function formatDateSeparator(timestamp: string): string {
+  return formatTzDate(timestamp, {
+    weekday: 'long',
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric'
+  })
+}
+
+// Format time only
+function formatTime(timestamp: string): string {
+  return formatTzDate(timestamp, {
     hour: '2-digit',
     minute: '2-digit'
   })
@@ -291,9 +338,9 @@ function formatDate(value: string) {
               trailing-icon="i-lucide-chevron-down"
             >
               <span v-if="dateRange.start || dateRange.end">
-                {{ dateRange.start ? new Date(dateRange.start).toLocaleDateString() : 'Any' }}
+                {{ dateRange.start || 'Any' }}
                 -
-                {{ dateRange.end ? new Date(dateRange.end).toLocaleDateString() : 'Any' }}
+                {{ dateRange.end || 'Any' }}
               </span>
               <span v-else-if="selectedPreset !== 'all'">
                 {{ datePresets.find(p => p.value === selectedPreset)?.label }}
@@ -527,21 +574,16 @@ function formatDate(value: string) {
           v-else-if="filteredEvents.length > 0"
           class="space-y-0"
         >
-          <!-- Group events by date -->
+          <!-- Group events by date (using user's timezone) -->
           <div v-for="(event, index) in filteredEvents" :key="event.id">
             <!-- Date separator for new days -->
             <div
-              v-if="index === 0 || new Date(event.timestamp).toDateString() !== new Date(filteredEvents[index - 1].timestamp).toDateString()"
+              v-if="index === 0 || getEventDateString(event.timestamp) !== getEventDateString(filteredEvents[index - 1].timestamp)"
               class="flex items-center gap-2 mt-4 mb-2"
             >
               <USeparator class="flex-1" />
               <span class="text-xs font-medium text-muted px-2">
-                {{ new Date(event.timestamp).toLocaleDateString(undefined, { 
-                  weekday: 'long', 
-                  year: 'numeric', 
-                  month: 'long', 
-                  day: 'numeric' 
-                }) }}
+                {{ formatDateSeparator(event.timestamp) }}
               </span>
               <USeparator class="flex-1" />
             </div>
@@ -589,10 +631,7 @@ function formatDate(value: string) {
                     </span>
 
                     <p>
-                      {{ new Date(event.timestamp).toLocaleTimeString(undefined, {
-                        hour: '2-digit',
-                        minute: '2-digit'
-                      }) }}
+                      {{ formatTime(event.timestamp) }}
                     </p>
                     <UIcon name="i-lucide-chevron-right" class="size-4 text-muted" />
                   </div>
@@ -615,7 +654,7 @@ function formatDate(value: string) {
             </NuxtLink>
             <!-- Separator between items on the same day -->
             <USeparator
-              v-if="index !== filteredEvents.length - 1 && new Date(event.timestamp).toDateString() === new Date(filteredEvents[index + 1].timestamp).toDateString()"
+              v-if="index !== filteredEvents.length - 1 && getEventDateString(event.timestamp) === getEventDateString(filteredEvents[index + 1].timestamp)"
               class="my-1 opacity-60"
             />
           </div>

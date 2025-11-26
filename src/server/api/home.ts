@@ -1,6 +1,12 @@
 import type { TimelineEvent } from '~/types'
 import type { Tables } from '~/types/database.types'
 import { serverSupabaseClient, serverSupabaseUser } from '#supabase/server'
+import { 
+  isValidTimezone, 
+  getStartOfDayInTimezone, 
+  getDaysAgoInTimezone,
+  getTimezoneFromRequest 
+} from '../utils/timezone'
 
 type EventRow = Tables<'events'>
 
@@ -50,6 +56,16 @@ export default eventHandler(async (event): Promise<HomeResponse> => {
   // Get the Supabase client with the user's session
   const supabase = await serverSupabaseClient(event)
   
+  // Get user's timezone from request header or query param
+  let userTimezone = getTimezoneFromRequest(event)
+  
+  // Try to get timezone from user's auth metadata
+  // The user object from serverSupabaseUser already has user_metadata
+  const userMetadata = (user as any)?.user_metadata
+  if (userMetadata?.timezone && isValidTimezone(userMetadata.timezone)) {
+    userTimezone = userMetadata.timezone
+  }
+
   try {
 
     const [
@@ -95,11 +111,10 @@ export default eventHandler(async (event): Promise<HomeResponse> => {
 
     const events = (eventsRows ?? []) as EventRow[]
     const now = new Date()
-    const startOfToday = new Date(now)
-    startOfToday.setHours(0, 0, 0, 0)
-
-    const weekAgo = new Date(now)
-    weekAgo.setDate(now.getDate() - 7)
+    
+    // Calculate start of today and week ago in the user's timezone
+    const startOfToday = getStartOfDayInTimezone(now, userTimezone)
+    const weekAgo = getDaysAgoInTimezone(7, userTimezone)
 
     let todayEvents = 0
     let incidentsThisWeek = 0
@@ -123,6 +138,7 @@ export default eventHandler(async (event): Promise<HomeResponse> => {
         }
 
         // Count events CAPTURED today (use created_at, not primary_timestamp)
+        // Compare in user's timezone
         if (capturedAt >= startOfToday) {
           todayEvents++
         }
