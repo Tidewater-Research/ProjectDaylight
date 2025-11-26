@@ -19,7 +19,14 @@ const router = useRouter()
 
 function formatDate(value?: string | null) {
   if (!value) return '—'
-  return formatTzDate(value, {
+
+  // referenceDate is stored as a date-only string (YYYY-MM-DD) without timezone.
+  // When passed directly to `new Date(value)` it is interpreted as midnight UTC,
+  // which can render as the previous day for users in negative offsets.
+  // To avoid off-by-one issues, anchor the date at noon UTC before formatting.
+  const safeDate = new Date(`${value}T12:00:00Z`)
+
+  return formatTzDate(safeDate.toISOString(), {
     month: 'short',
     day: 'numeric'
   })
