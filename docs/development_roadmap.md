@@ -106,23 +106,7 @@
   - ~~Add/remove event associations from evidence view~~ (future enhancement)
   - Timeline context for when evidence was captured vs. events ✅
   
-- [ ] **Association interface (future enhancement)**
-  - Search/select events when viewing evidence
-  - Search/select evidence when viewing events
-  - Bulk association capabilities
-  - Visual indicators for linked items ✅ (basic support exists)
-  
 **Success:** ✅ User can link a photo to multiple events → see photo when viewing event → see events when viewing photo (association happens automatically during event extraction, manual add/remove deferred to post-launch)
-
-### Priority 2.5: Evidence Entry UX
-**Make adding evidence fast and flexible, with AI as an enhancement**
-
-- [ ] **Evidence capture workflow**
-  - Default to a quick “Save evidence” flow after upload (with or without description)
-  - Offer AI extraction/description as an optional follow-up action, not the only primary button
-  - Support future expansion for batch uploads and mixed media (photos, docs, screenshots)
-
----
 
 ### Priority 3: Payments & Billing
 - [ ] **Stripe integration**
