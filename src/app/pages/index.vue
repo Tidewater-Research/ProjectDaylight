@@ -803,8 +803,61 @@ onUnmounted(() => {
       </UContainer>
     </section>
 
-    <!-- Final CTA -->
+    <!-- Security Section -->
     <section class="border-t border-default bg-default py-24">
+      <UContainer>
+        <div class="mx-auto max-w-5xl">
+          <div class="text-center mb-12">
+            <div class="inline-flex items-center gap-2 rounded-full border border-primary/20 bg-primary/5 px-3 py-1 text-xs font-medium text-primary mb-6">
+              <UIcon name="i-lucide-shield-check" class="size-3.5" />
+              Your data is protected
+            </div>
+            <h2 class="text-3xl font-bold tracking-tight text-highlighted sm:text-4xl">
+              One less thing to worry about.
+            </h2>
+            <p class="mt-4 text-lg text-muted max-w-2xl mx-auto">
+              You're dealing with enough stress. We built Daylight with serious security from day one, so you can focus on your case—not your data.
+            </p>
+          </div>
+
+          <div class="grid gap-8 md:grid-cols-3">
+            <div class="text-center space-y-3">
+              <div class="mx-auto flex size-12 items-center justify-center rounded-xl bg-primary/10 text-primary">
+                <UIcon name="i-lucide-lock" class="size-6" />
+              </div>
+              <h3 class="font-semibold text-highlighted">Encrypted everywhere</h3>
+              <p class="text-sm text-muted">Your recordings, screenshots, and notes are encrypted in transit and at rest. Nobody can read them but you.</p>
+            </div>
+
+            <div class="text-center space-y-3">
+              <div class="mx-auto flex size-12 items-center justify-center rounded-xl bg-primary/10 text-primary">
+                <UIcon name="i-lucide-user-check" class="size-6" />
+              </div>
+              <h3 class="font-semibold text-highlighted">Your data stays yours</h3>
+              <p class="text-sm text-muted">We don't sell your information. Ever. Your evidence is isolated and only accessible to you.</p>
+            </div>
+
+            <div class="text-center space-y-3">
+              <div class="mx-auto flex size-12 items-center justify-center rounded-xl bg-primary/10 text-primary">
+                <UIcon name="i-lucide-database-backup" class="size-6" />
+              </div>
+              <h3 class="font-semibold text-highlighted">Backed up daily</h3>
+              <p class="text-sm text-muted">Automatic backups mean your documentation is safe. No lost evidence, no accidents, no worries.</p>
+            </div>
+          </div>
+
+          <div class="mt-10 text-center">
+            <NuxtLink to="/security" class="inline-flex items-center gap-1.5 text-sm text-primary hover:underline">
+              Learn more about our security
+              <UIcon name="i-lucide-arrow-right" class="size-3.5" />
+            </NuxtLink>
+          </div>
+        </div>
+      </UContainer>
+    </section>
+
+    <!-- Final CTA -->
+    <section class="border-t border-default bg-muted py-24">
       <UContainer>
         <div class="mx-auto max-w-2xl text-center">
           <h2 class="text-3xl font-bold tracking-tight text-highlighted sm:text-4xl">
