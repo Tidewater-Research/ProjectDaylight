@@ -46,8 +46,11 @@ export function useProfile() {
       needsOnboarding.value = response.needsOnboarding
       isFetched.value = true
       return response.profile
-    } catch (err) {
-      console.error('[useProfile] Error fetching profile:', err)
+    } catch (err: any) {
+      // 401 is expected on public routes where user isn't authenticated - don't log as error
+      if (err?.statusCode !== 401) {
+        console.error('[useProfile] Error fetching profile:', err)
+      }
       return null
     } finally {
       isLoading.value = false
@@ -72,8 +75,11 @@ export function useProfile() {
       }
       
       return response.profile
-    } catch (err) {
-      console.error('[useProfile] Error updating profile:', err)
+    } catch (err: any) {
+      // 401 is expected if auth session is invalid
+      if (err?.statusCode !== 401) {
+        console.error('[useProfile] Error updating profile:', err)
+      }
       return null
     } finally {
       isLoading.value = false

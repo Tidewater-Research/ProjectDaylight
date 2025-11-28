@@ -19,6 +19,24 @@ const PRICING_PLANS: PricingPlan[] = [
     ]
   },
   {
+    id: 'plan_alpha',
+    tier: 'alpha',
+    name: 'Alpha',
+    description: 'For employees and early partners',
+    priceMonthly: 0,
+    priceYearly: 0,
+    features: [
+      'All Pro features unlocked',
+      'Unlimited journal entries',
+      'Unlimited evidence uploads',
+      'AI-powered event extraction',
+      'Court-ready report generation',
+      'Pattern analysis & insights',
+      'Priority support',
+      'Early access to new features'
+    ]
+  },
+  {
     id: 'plan_pro',
     tier: 'pro',
     name: 'Pro',

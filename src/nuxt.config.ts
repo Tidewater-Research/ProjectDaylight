@@ -128,6 +128,10 @@ export default defineNuxtConfig({
     // API routes
     '/api/**': {
       cors: true
+    },
+    // Stripe webhook needs raw body for signature verification
+    '/api/billing/webhook': {
+      cors: false
     }
   },
 

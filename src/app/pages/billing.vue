@@ -46,9 +46,19 @@ const currentPlan = computed(() => {
 })
 
 const proPlan = computed(() => plans.value.find(p => p.tier === 'pro'))
+const alphaPlan = computed(() => plans.value.find(p => p.tier === 'alpha'))
 
 const isPro = computed(() => {
   return subscription.value?.planTier === 'pro' && subscription.value?.status === 'active'
+})
+
+const isAlpha = computed(() => {
+  return subscription.value?.planTier === 'alpha' && subscription.value?.status === 'active'
+})
+
+// Alpha and Pro users have premium access
+const hasPremiumAccess = computed(() => {
+  return isPro.value || isAlpha.value
 })
 
 // Format price
@@ -190,10 +200,10 @@ function transformPlan(plan: PricingPlan, isCurrent: boolean) {
             <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
               <div class="space-y-2">
                 <div class="flex items-center gap-3">
-                  <div class="p-2 rounded-lg bg-primary/10">
+                  <div :class="['p-2 rounded-lg', isAlpha ? 'bg-success/10' : 'bg-primary/10']">
                     <UIcon
-                      :name="isPro ? 'i-lucide-crown' : 'i-lucide-user'"
-                      class="w-6 h-6 text-primary"
+                      :name="isAlpha ? 'i-lucide-sparkles' : isPro ? 'i-lucide-crown' : 'i-lucide-user'"
+                      :class="['w-6 h-6', isAlpha ? 'text-success' : 'text-primary']"
                     />
                   </div>
                   <div>
@@ -202,7 +212,15 @@ function transformPlan(plan: PricingPlan, isCurrent: boolean) {
                         {{ currentPlan?.name ?? 'Free' }} Plan
                       </span>
                       <UBadge
-                        v-if="subscription"
+                        v-if="isAlpha"
+                        color="success"
+                        variant="subtle"
+                        size="sm"
+                      >
+                        Early Access
+                      </UBadge>
+                      <UBadge
+                        v-else-if="subscription"
                         :color="statusColor(subscription.status)"
                         variant="subtle"
                         size="sm"
@@ -219,7 +237,10 @@ function transformPlan(plan: PricingPlan, isCurrent: boolean) {
                       </UBadge>
                     </div>
                     <p class="text-sm text-muted">
-                      <template v-if="isPro && subscription">
+                      <template v-if="isAlpha">
+                        All features unlocked · Thank you for being an early partner
+                      </template>
+                      <template v-else-if="isPro && subscription">
                         {{ formatPrice(selectedInterval === 'year' ? (proPlan?.priceYearly ?? 0) : (proPlan?.priceMonthly ?? 0)) }}/{{ subscription.billingInterval }}
                         <span v-if="subscription.cancelAtPeriodEnd">
                           · Access until {{ formatDate(subscription.currentPeriodEnd) }}
@@ -238,7 +259,7 @@ function transformPlan(plan: PricingPlan, isCurrent: boolean) {
 
               <div class="flex gap-2">
                 <UButton
-                  v-if="isPro && subscription?.stripeCustomerId"
+                  v-if="isPro && subscription?.stripeCustomerId && !isAlpha"
                   color="neutral"
                   variant="soft"
                   :loading="isLoading"
@@ -252,7 +273,7 @@ function transformPlan(plan: PricingPlan, isCurrent: boolean) {
           </UCard>
 
           <!-- Upgrade Section (for free users) -->
-          <template v-if="!isPro">
+          <template v-if="!hasPremiumAccess">
             <div class="text-center space-y-4">
               <h2 class="text-2xl font-bold text-highlighted">Upgrade to Pro</h2>
               <p class="text-muted max-w-lg mx-auto">
@@ -325,6 +346,29 @@ function transformPlan(plan: PricingPlan, isCurrent: boolean) {
                 </div>
               </template>
             </UAccordion>
+          </template>
+
+          <!-- Already Alpha -->
+          <template v-else-if="isAlpha">
+            <UCard variant="subtle" class="border-success/20 bg-success/5">
+              <div class="flex items-start gap-4">
+                <div class="p-3 rounded-full bg-success/10">
+                  <UIcon name="i-lucide-heart-handshake" class="w-6 h-6 text-success" />
+                </div>
+                <div class="flex-1">
+                  <h3 class="font-semibold text-highlighted">Alpha Partner Access</h3>
+                  <p class="text-sm text-muted mt-1">
+                    As an early partner, you have full access to all features at no cost. Thank you for helping us build something meaningful.
+                  </p>
+                  <div class="flex flex-wrap gap-2 mt-4">
+                    <UBadge variant="subtle" color="success">All Pro Features</UBadge>
+                    <UBadge variant="subtle" color="success">Unlimited Everything</UBadge>
+                    <UBadge variant="subtle" color="success">Early Access</UBadge>
+                    <UBadge variant="subtle" color="success">Priority Support</UBadge>
+                  </div>
+                </div>
+              </div>
+            </UCard>
           </template>
 
           <!-- Already Pro -->

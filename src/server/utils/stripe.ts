@@ -26,7 +26,7 @@ async function initStripe() {
   try {
     const Stripe = (await import('stripe')).default
     stripeInstance = new Stripe(stripeSecretKey, {
-      apiVersion: '2024-11-20.acacia'
+      apiVersion: '2025-02-24.acacia'
     })
     stripeInitialized = true
     return stripeInstance
@@ -47,12 +47,21 @@ export function isStripeConfigured(): boolean {
   return !!process.env.STRIPE_SECRET_KEY
 }
 
+// Plan tier type
+export type PlanTier = 'free' | 'alpha' | 'starter' | 'pro' | 'enterprise'
+
 // Calculate the plan tier from a Stripe price ID
-export function getPlanTierFromPriceId(priceId: string): 'free' | 'pro' {
+export function getPlanTierFromPriceId(priceId: string): PlanTier {
   if (priceId === STRIPE_PRICES.pro_monthly || priceId === STRIPE_PRICES.pro_yearly) {
     return 'pro'
   }
+  // Alpha tier doesn't use Stripe - it's assigned manually in the database
   return 'free'
+}
+
+// Check if a plan tier has Pro-level access (alpha gets all pro features)
+export function hasPremiumAccess(planTier: PlanTier): boolean {
+  return planTier === 'alpha' || planTier === 'pro' || planTier === 'enterprise'
 }
 
 // Get billing interval from price ID

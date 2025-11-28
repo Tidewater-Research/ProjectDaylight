@@ -87,7 +87,7 @@ export type ExportFocus = 'full-timeline' | 'incidents-only' | 'positive-parenti
 
 // Billing / Subscription types (Stripe-ready structure)
 export type SubscriptionStatus = 'active' | 'trialing' | 'past_due' | 'canceled' | 'incomplete' | 'incomplete_expired' | 'unpaid' | 'paused'
-export type PlanTier = 'free' | 'starter' | 'pro' | 'enterprise'
+export type PlanTier = 'free' | 'alpha' | 'starter' | 'pro' | 'enterprise'
 export type BillingInterval = 'month' | 'year'
 
 export interface PricingPlan {

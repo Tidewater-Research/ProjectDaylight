@@ -104,6 +104,11 @@ export default defineEventHandler(async (event) => {
     ],
     success_url: `${baseUrl}/billing?success=true`,
     cancel_url: `${baseUrl}/billing?canceled=true`,
+    // Set metadata on the session itself (for checkout.session.completed)
+    metadata: {
+      supabase_user_id: userId
+    },
+    // Also set metadata on the subscription (for subscription events)
     subscription_data: {
       metadata: {
         supabase_user_id: userId

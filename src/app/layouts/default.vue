@@ -5,6 +5,9 @@ import type { TimelineEvent, EvidenceItem } from '~/types'
 const route = useRoute()
 const toast = useToast()
 
+// Initialize timezone detection/sync for all authenticated users
+useTimezone()
+
 const open = ref(false)
 
 interface SearchItem {

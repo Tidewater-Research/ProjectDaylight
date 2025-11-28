@@ -93,10 +93,23 @@ export default defineEventHandler(async (event) => {
 async function handleCheckoutCompleted(supabase: ReturnType<typeof createClient>, session: any) {
   const customerId = session.customer as string
   const subscriptionId = session.subscription as string
-  const userId = session.metadata?.supabase_user_id || session.subscription_data?.metadata?.supabase_user_id
+  
+  // Try to get user ID from session metadata first
+  let userId = session.metadata?.supabase_user_id
+
+  // If not in session metadata, try to find by customer ID (we stored it when creating the customer)
+  if (!userId && customerId) {
+    const { data } = await supabase
+      .from('subscriptions')
+      .select('user_id')
+      .eq('stripe_customer_id', customerId)
+      .maybeSingle()
+    
+    userId = data?.user_id
+  }
 
   if (!userId) {
-    console.error('[Stripe Webhook] No user ID in checkout session metadata')
+    console.error('[Stripe Webhook] No user ID in checkout session metadata and could not find by customer ID')
     return
   }
 
@@ -141,9 +154,18 @@ async function handleSubscriptionUpdated(supabase: ReturnType<typeof createClien
   }
 
   // Get the price ID from the first item
-  const priceId = subscription.items.data[0]?.price.id || ''
+  const priceId = subscription.items?.data?.[0]?.price?.id || ''
   const planTier = getPlanTierFromPriceId(priceId)
   const billingInterval = getBillingIntervalFromPriceId(priceId)
+
+  // Safely convert timestamps (Stripe sends Unix timestamps in seconds)
+  const periodStart = subscription.current_period_start
+    ? new Date(subscription.current_period_start * 1000).toISOString()
+    : new Date().toISOString()
+  
+  const periodEnd = subscription.current_period_end
+    ? new Date(subscription.current_period_end * 1000).toISOString()
+    : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString() // Default to 30 days
 
   const { error } = await supabase
     .from('subscriptions')
@@ -155,9 +177,9 @@ async function handleSubscriptionUpdated(supabase: ReturnType<typeof createClien
       status: subscription.status,
       plan_tier: planTier,
       billing_interval: billingInterval,
-      current_period_start: new Date(subscription.current_period_start * 1000).toISOString(),
-      current_period_end: new Date(subscription.current_period_end * 1000).toISOString(),
-      cancel_at_period_end: subscription.cancel_at_period_end
+      current_period_start: periodStart,
+      current_period_end: periodEnd,
+      cancel_at_period_end: subscription.cancel_at_period_end ?? false
     }, {
       onConflict: 'user_id'
     })
