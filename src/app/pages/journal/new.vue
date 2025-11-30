@@ -576,27 +576,42 @@ function loadTestText(sample: string) {
         <!-- Progress Steps -->
         <div class="flex items-center justify-center gap-2 mb-8">
           <div
-            class="flex items-center gap-2 px-3 py-1.5 rounded-full text-sm font-medium transition-colors"
-            :class="state.step === 'event' ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground'"
+            class="flex items-center gap-2 px-3 py-1.5 rounded-full text-sm font-medium transition-colors border"
+            :class="state.step === 'event' 
+              ? 'bg-primary text-white border-primary' 
+              : 'bg-transparent text-muted border-default'"
           >
-            <span class="w-5 h-5 rounded-full bg-current/20 flex items-center justify-center text-xs">1</span>
-            Describe
+            <span 
+              class="w-5 h-5 rounded-full flex items-center justify-center text-xs"
+              :class="state.step === 'event' ? 'bg-white/20' : 'bg-muted'"
+            >1</span>
+            <span class="hidden sm:inline">Describe</span>
           </div>
-          <UIcon name="i-lucide-chevron-right" class="text-muted-foreground" />
+          <UIcon name="i-lucide-chevron-right" class="text-muted size-4" />
           <div
-            class="flex items-center gap-2 px-3 py-1.5 rounded-full text-sm font-medium transition-colors"
-            :class="state.step === 'evidence' ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground'"
+            class="flex items-center gap-2 px-3 py-1.5 rounded-full text-sm font-medium transition-colors border"
+            :class="state.step === 'evidence' 
+              ? 'bg-primary text-white border-primary' 
+              : 'bg-transparent text-muted border-default'"
           >
-            <span class="w-5 h-5 rounded-full bg-current/20 flex items-center justify-center text-xs">2</span>
-            Evidence
+            <span 
+              class="w-5 h-5 rounded-full flex items-center justify-center text-xs"
+              :class="state.step === 'evidence' ? 'bg-white/20' : 'bg-muted'"
+            >2</span>
+            <span class="hidden sm:inline">Evidence</span>
           </div>
-          <UIcon name="i-lucide-chevron-right" class="text-muted-foreground" />
+          <UIcon name="i-lucide-chevron-right" class="text-muted size-4" />
           <div
-            class="flex items-center gap-2 px-3 py-1.5 rounded-full text-sm font-medium transition-colors"
-            :class="state.step === 'processing' || state.step === 'review' ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground'"
+            class="flex items-center gap-2 px-3 py-1.5 rounded-full text-sm font-medium transition-colors border"
+            :class="state.step === 'processing' || state.step === 'review' 
+              ? 'bg-primary text-white border-primary' 
+              : 'bg-transparent text-muted border-default'"
           >
-            <span class="w-5 h-5 rounded-full bg-current/20 flex items-center justify-center text-xs">3</span>
-            Review
+            <span 
+              class="w-5 h-5 rounded-full flex items-center justify-center text-xs"
+              :class="state.step === 'processing' || state.step === 'review' ? 'bg-white/20' : 'bg-muted'"
+            >3</span>
+            <span class="hidden sm:inline">Review</span>
           </div>
         </div>
 

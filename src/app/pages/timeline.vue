@@ -324,23 +324,43 @@ function formatTime(timestamp: string): string {
         </template>
       </UDashboardNavbar>
 
-      <!-- Custom toolbar since UDashboardToolbar might not be available -->
-      <div class="shrink-0 flex items-center justify-between border-b px-4 sm:px-6 gap-4 overflow-x-auto min-h-[49px] py-2">
-        <!-- Left section with filters -->
-        <div class="flex items-center gap-2">
+      <!-- Mobile-friendly scrollable toolbar -->
+      <div class="shrink-0 border-b border-default">
+        <!-- Search row - always visible -->
+        <div class="flex items-center gap-3 px-4 sm:px-6 py-2">
+          <UInput
+            v-model="searchQuery"
+            icon="i-lucide-search"
+            placeholder="Search events..."
+            size="sm"
+            class="flex-1 min-w-0"
+          />
+          <UButton
+            variant="solid"
+            color="primary"
+            size="sm"
+            icon="i-lucide-plus"
+            to="/journal/new"
+            class="shrink-0"
+          >
+            <span class="hidden sm:inline">New Event</span>
+          </UButton>
+        </div>
+
+        <!-- Scrollable filters row -->
+        <div class="flex items-center gap-2 px-4 sm:px-6 py-2 overflow-x-auto scrollbar-none border-t border-default/50">
           <!-- Date Range Popover -->
           <UPopover>
             <UButton
               variant="soft"
               color="neutral"
-              size="sm"
+              size="xs"
               icon="i-lucide-calendar"
               trailing-icon="i-lucide-chevron-down"
+              class="shrink-0"
             >
-              <span v-if="dateRange.start || dateRange.end">
-                {{ dateRange.start || 'Any' }}
-                -
-                {{ dateRange.end || 'Any' }}
+              <span v-if="dateRange.start || dateRange.end" class="hidden sm:inline">
+                {{ dateRange.start || 'Any' }} - {{ dateRange.end || 'Any' }}
               </span>
               <span v-else-if="selectedPreset !== 'all'">
                 {{ datePresets.find(p => p.value === selectedPreset)?.label }}
@@ -414,9 +434,10 @@ function formatTime(timestamp: string): string {
             <UButton
               variant="soft"
               color="neutral"
-              size="sm"
+              size="xs"
               icon="i-lucide-filter"
               trailing-icon="i-lucide-chevron-down"
+              class="shrink-0"
             >
               <span v-if="selectedTypes.length > 0">
                 Types ({{ selectedTypes.length }})
@@ -479,11 +500,13 @@ function formatTime(timestamp: string): string {
             <UButton
               variant="soft"
               color="neutral"
-              size="sm"
+              size="xs"
               icon="i-lucide-arrow-up-down"
               trailing-icon="i-lucide-chevron-down"
+              class="shrink-0"
             >
-              {{ sortOptions.find(s => s.value === sortOrder)?.label }}
+              <span class="hidden sm:inline">{{ sortOptions.find(s => s.value === sortOrder)?.label }}</span>
+              <span class="sm:hidden">Sort</span>
             </UButton>
 
             <template #content>
@@ -505,38 +528,21 @@ function formatTime(timestamp: string): string {
             </template>
           </UPopover>
 
-        </div>
-
-        <!-- Center section with search -->
-        <UInput
-          v-model="searchQuery"
-          icon="i-lucide-search"
-          placeholder="Search events, participants, locations..."
-          size="sm"
-          class="flex-1 max-w-md"
-        />
-
-        <!-- Right section with actions -->
-        <div class="flex items-center gap-2">
+          <!-- Clear Filters Button -->
           <UButton
             v-if="hasActiveFilters"
             variant="ghost"
+            color="neutral"
             size="xs"
             icon="i-lucide-x"
+            class="shrink-0"
             @click="clearFilters"
           >
-            Clear Filters
+            <span class="hidden sm:inline">Clear</span>
           </UButton>
 
-          <UButton
-            variant="solid"
-            color="primary"
-            size="sm"
-            icon="i-lucide-plus"
-            to="/journal/new"
-          >
-            New Event
-          </UButton>
+          <!-- Spacer to show scroll indicator -->
+          <div class="w-2 shrink-0" />
         </div>
       </div>
     </template>

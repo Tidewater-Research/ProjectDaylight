@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { h, resolveComponent } from 'vue'
+import { h, resolveComponent, computed, ref, onMounted, onUnmounted } from 'vue'
 import type { TableColumn } from '@nuxt/ui'
 import type { Row } from '@tanstack/table-core'
 import type { SavedExport, ExportFocus } from '~/types'
@@ -112,99 +112,133 @@ function getRowItems(row: Row<SavedExport>) {
   ]
 }
 
-const columns: TableColumn<SavedExport>[] = [
-  {
-    accessorKey: 'title',
-    header: ({ column }) => {
-      const isSorted = column.getIsSorted()
-      return h(UButton, {
-        color: 'neutral',
-        variant: 'ghost',
-        label: 'Title',
-        icon: isSorted
-          ? isSorted === 'asc'
-            ? 'i-lucide-arrow-up-narrow-wide'
-            : 'i-lucide-arrow-down-wide-narrow'
-          : 'i-lucide-arrow-up-down',
-        class: '-mx-2.5',
-        onClick: () => column.toggleSorting(column.getIsSorted() === 'asc')
-      })
-    },
-    cell: ({ row }) => {
-      const title = row.original.title || ''
-      const maxLength = 60
-      const isTruncated = title.length > maxLength
-      const displayTitle = isTruncated ? `${title.slice(0, maxLength)}…` : title
+// Check for small screen (reactive)
+const isMobile = ref(false)
+onMounted(() => {
+  const checkMobile = () => {
+    isMobile.value = window.innerWidth < 640
+  }
+  checkMobile()
+  window.addEventListener('resize', checkMobile)
+  onUnmounted(() => window.removeEventListener('resize', checkMobile))
+})
 
-      const titleNode = h('p', { class: 'font-medium text-highlighted' }, displayTitle)
+const columns = computed<TableColumn<SavedExport>[]>(() => {
+  const baseColumns: TableColumn<SavedExport>[] = [
+    {
+      accessorKey: 'title',
+      header: ({ column }) => {
+        const isSorted = column.getIsSorted()
+        return h(UButton, {
+          color: 'neutral',
+          variant: 'ghost',
+          label: 'Title',
+          icon: isSorted
+            ? isSorted === 'asc'
+              ? 'i-lucide-arrow-up-narrow-wide'
+              : 'i-lucide-arrow-down-wide-narrow'
+            : 'i-lucide-arrow-up-down',
+          class: '-mx-2.5',
+          onClick: () => column.toggleSorting(column.getIsSorted() === 'asc')
+        })
+      },
+      cell: ({ row }) => {
+        const title = row.original.title || ''
+        const maxLength = isMobile.value ? 30 : 60
+        const isTruncated = title.length > maxLength
+        const displayTitle = isTruncated ? `${title.slice(0, maxLength)}…` : title
 
-      const mainTitle = isTruncated
-        ? h(UTooltip, { text: title }, { default: () => titleNode })
-        : titleNode
+        const titleNode = h('p', { class: 'font-medium text-highlighted text-sm' }, displayTitle)
 
-      return h('div', { class: 'flex flex-col gap-0.5' }, [
-        mainTitle,
-        row.original.metadata?.case_title && row.original.metadata.case_title !== row.original.title
-          ? h('p', { class: 'text-xs text-muted' }, row.original.metadata.case_title)
-          : null
-      ])
-    }
-  },
-  {
-    accessorKey: 'focus',
-    header: 'Focus',
-    cell: ({ row }) => {
-      const focus = row.original.focus as ExportFocus
-      const opt = focusOptions[focus] || { label: focus, color: 'neutral' as const }
-      return h(UBadge, { 
-        variant: 'subtle', 
-        color: opt.color 
-      }, () => opt.label)
-    }
-  },
-  {
-    id: 'stats',
-    header: 'Content',
-    cell: ({ row }) => {
-      const meta = row.original.metadata
-      const parts = []
-      if (meta?.events_count) {
-        parts.push(`${meta.events_count} events`)
+        const mainTitle = isTruncated
+          ? h(UTooltip, { text: title }, { default: () => titleNode })
+          : titleNode
+
+        // On mobile, show focus badge inline with title
+        if (isMobile.value) {
+          const focus = row.original.focus as ExportFocus
+          const opt = focusOptions[focus] || { label: focus, color: 'neutral' as const }
+          return h('div', { class: 'flex flex-col gap-1' }, [
+            mainTitle,
+            h('div', { class: 'flex items-center gap-2' }, [
+              h(UBadge, { variant: 'subtle', color: opt.color, size: 'xs' }, () => opt.label),
+              h('span', { class: 'text-xs text-muted' }, formatRelativeDate(row.original.created_at))
+            ])
+          ])
+        }
+
+        return h('div', { class: 'flex flex-col gap-0.5' }, [
+          mainTitle,
+          row.original.metadata?.case_title && row.original.metadata.case_title !== row.original.title
+            ? h('p', { class: 'text-xs text-muted truncate max-w-[200px]' }, row.original.metadata.case_title)
+            : null
+        ])
       }
-      if (meta?.evidence_count) {
-        parts.push(`${meta.evidence_count} evidence`)
-      }
-      if (meta?.ai_summary_included) {
-        parts.push('AI summary')
-      }
-      return h('span', { class: 'text-sm text-muted' }, parts.join(' · ') || '—')
     }
-  },
-  {
-    accessorKey: 'created_at',
-    header: ({ column }) => {
-      const isSorted = column.getIsSorted()
-      return h(UButton, {
-        color: 'neutral',
-        variant: 'ghost',
-        label: 'Created',
-        icon: isSorted
-          ? isSorted === 'asc'
-            ? 'i-lucide-arrow-up-narrow-wide'
-            : 'i-lucide-arrow-down-wide-narrow'
-          : 'i-lucide-arrow-up-down',
-        class: '-mx-2.5',
-        onClick: () => column.toggleSorting(column.getIsSorted() === 'asc')
-      })
-    },
-    cell: ({ row }) => {
-      return h('div', { class: 'flex flex-col gap-0.5' }, [
-        h('span', { class: 'text-sm' }, formatRelativeDate(row.original.created_at)),
-        h('span', { class: 'text-xs text-muted' }, formatDate(row.original.created_at))
-      ])
-    }
-  },
-  {
+  ]
+
+  // Only add extra columns on larger screens
+  if (!isMobile.value) {
+    baseColumns.push(
+      {
+        accessorKey: 'focus',
+        header: 'Focus',
+        cell: ({ row }) => {
+          const focus = row.original.focus as ExportFocus
+          const opt = focusOptions[focus] || { label: focus, color: 'neutral' as const }
+          return h(UBadge, { 
+            variant: 'subtle', 
+            color: opt.color 
+          }, () => opt.label)
+        }
+      },
+      {
+        id: 'stats',
+        header: 'Content',
+        cell: ({ row }) => {
+          const meta = row.original.metadata
+          const parts = []
+          if (meta?.events_count) {
+            parts.push(`${meta.events_count} events`)
+          }
+          if (meta?.evidence_count) {
+            parts.push(`${meta.evidence_count} evidence`)
+          }
+          if (meta?.ai_summary_included) {
+            parts.push('AI summary')
+          }
+          return h('span', { class: 'text-sm text-muted' }, parts.join(' · ') || '—')
+        }
+      },
+      {
+        accessorKey: 'created_at',
+        header: ({ column }) => {
+          const isSorted = column.getIsSorted()
+          return h(UButton, {
+            color: 'neutral',
+            variant: 'ghost',
+            label: 'Created',
+            icon: isSorted
+              ? isSorted === 'asc'
+                ? 'i-lucide-arrow-up-narrow-wide'
+                : 'i-lucide-arrow-down-wide-narrow'
+              : 'i-lucide-arrow-up-down',
+            class: '-mx-2.5',
+            onClick: () => column.toggleSorting(column.getIsSorted() === 'asc')
+          })
+        },
+        cell: ({ row }) => {
+          return h('div', { class: 'flex flex-col gap-0.5' }, [
+            h('span', { class: 'text-sm' }, formatRelativeDate(row.original.created_at)),
+            h('span', { class: 'text-xs text-muted' }, formatDate(row.original.created_at))
+          ])
+        }
+      }
+    )
+  }
+
+  // Actions column always shown
+  baseColumns.push({
     id: 'actions',
     cell: ({ row }) => {
       return h(
@@ -225,8 +259,10 @@ const columns: TableColumn<SavedExport>[] = [
         )
       )
     }
-  }
-]
+  })
+
+  return baseColumns
+})
 
 const sorting = ref([{ id: 'created_at', desc: true }])
 
@@ -339,7 +375,7 @@ function openExport(row: Row<SavedExport>) {
       </div>
 
       <!-- Table view -->
-      <div v-else class="flex flex-col h-full">
+      <div v-else class="flex flex-col h-full min-h-0">
         <UTable
           ref="table"
           v-model:sorting="sorting"
@@ -347,6 +383,7 @@ function openExport(row: Row<SavedExport>) {
           :data="savedExports"
           :columns="columns"
           :loading="status === 'pending'"
+          sticky
           class="flex-1"
           @select="(_, row) => openExport(row)"
         />

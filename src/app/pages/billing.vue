@@ -281,20 +281,21 @@ function transformPlan(plan: PricingPlan, isCurrent: boolean) {
         </div>
 
         <template v-else>
-          <!-- Current Subscription Status -->
-          <UCard>
-            <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-              <div class="space-y-2">
-                <div class="flex items-center gap-3">
-                  <div :class="['p-2 rounded-lg', isAlpha ? 'bg-success/10' : 'bg-primary/10']">
+          <!-- Current Subscription Status - Consolidated Card -->
+          <UCard :class="isPro ? 'border-primary/20' : isAlpha ? 'border-success/20' : ''">
+            <div class="space-y-4">
+              <!-- Header row -->
+              <div class="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
+                <div class="flex items-start gap-3">
+                  <div :class="['p-2.5 rounded-lg shrink-0', isAlpha ? 'bg-success/10' : isPro ? 'bg-primary/10' : 'bg-muted']">
                     <UIcon
                       :name="isAlpha ? 'i-lucide-sparkles' : isPro ? 'i-lucide-crown' : 'i-lucide-user'"
-                      :class="['w-6 h-6', isAlpha ? 'text-success' : 'text-primary']"
+                      :class="['w-6 h-6', isAlpha ? 'text-success' : isPro ? 'text-primary' : 'text-muted']"
                     />
                   </div>
-                  <div>
-                    <div class="flex items-center gap-2">
-                      <span class="text-xl font-semibold text-highlighted">
+                  <div class="min-w-0">
+                    <div class="flex flex-wrap items-center gap-2 mb-1">
+                      <span class="text-lg sm:text-xl font-semibold text-highlighted">
                         {{ currentPlan?.name ?? 'Free' }} Plan
                       </span>
                       <UBadge
@@ -341,22 +342,37 @@ function transformPlan(plan: PricingPlan, isCurrent: boolean) {
                     </p>
                   </div>
                 </div>
-              </div>
 
-              <div class="flex gap-2">
                 <UButton
                   v-if="isPro && subscription?.stripeCustomerId && !isAlpha"
                   color="neutral"
                   variant="soft"
+                  size="sm"
                   :loading="isLoading"
+                  class="shrink-0"
                   @click="manageBilling"
                 >
                   <UIcon name="i-lucide-settings" class="w-4 h-4 mr-1" />
-                  Manage Billing
+                  <span class="hidden sm:inline">Manage Billing</span>
+                  <span class="sm:hidden">Manage</span>
                 </UButton>
               </div>
+
+              <!-- Pro/Alpha features inline -->
+              <div v-if="isPro || isAlpha" class="flex flex-wrap gap-2 pt-2 border-t border-default">
+                <template v-if="isAlpha">
+                  <UBadge variant="subtle" color="success" size="sm">All Pro Features</UBadge>
+                  <UBadge variant="subtle" color="success" size="sm">Unlimited Everything</UBadge>
+                  <UBadge variant="subtle" color="success" size="sm">Priority Support</UBadge>
+                </template>
+                <template v-else-if="isPro">
+                  <UBadge v-for="feature in proPlan?.features.slice(0, 4)" :key="feature" variant="subtle" color="primary" size="sm">
+                    {{ feature }}
+                  </UBadge>
+                </template>
+              </div>
             </div>
-            </UCard>
+          </UCard>
 
           <!-- Usage Summary for Free Tier -->
           <UCard v-if="!hasPremiumAccess">
@@ -532,70 +548,14 @@ function transformPlan(plan: PricingPlan, isCurrent: boolean) {
             </UAccordion>
           </template>
 
-          <!-- Already Alpha -->
-          <template v-else-if="isAlpha">
-            <UCard variant="subtle" class="border-success/20 bg-success/5">
-              <div class="flex items-start gap-4">
-                <div class="p-3 rounded-full bg-success/10">
-                  <UIcon name="i-lucide-heart-handshake" class="w-6 h-6 text-success" />
-                </div>
-                <div class="flex-1">
-                  <h3 class="font-semibold text-highlighted">Alpha Partner Access</h3>
-                  <p class="text-sm text-muted mt-1">
-                    As an early partner, you have full access to all features at no cost. Thank you for helping us build something meaningful.
-                  </p>
-                  <div class="flex flex-wrap gap-2 mt-4">
-                    <UBadge variant="subtle" color="success">All Pro Features</UBadge>
-                    <UBadge variant="subtle" color="success">Unlimited Everything</UBadge>
-                    <UBadge variant="subtle" color="success">Early Access</UBadge>
-                    <UBadge variant="subtle" color="success">Priority Support</UBadge>
-                  </div>
-                </div>
-                <!-- That's my dawg -->
-                <div class="hidden sm:block">
-                  <img
-                    src="https://media.giphy.com/media/scftgIpdF1V3eFED52/giphy.gif"
-                    alt="Dancing celebration"
-                    class="w-24 h-24 rounded-lg object-cover"
-                  />
-                </div>
-              </div>
-            </UCard>
-          </template>
-
-          <!-- Already Pro -->
-          <template v-else>
-            <UCard variant="subtle" class="border-primary/20 bg-primary/5">
-              <div class="flex items-start gap-4">
-                <div class="p-3 rounded-full bg-primary/10">
-                  <UIcon name="i-lucide-sparkles" class="w-6 h-6 text-primary" />
-                </div>
-                <div class="flex-1">
-                  <h3 class="font-semibold text-highlighted">You're on Pro!</h3>
-                  <p class="text-sm text-muted mt-1">
-                    Enjoy unlimited journal entries, AI-powered features, and priority support.
-                  </p>
-                  <div class="flex flex-wrap gap-2 mt-4">
-                    <UBadge v-for="feature in proPlan?.features.slice(0, 4)" :key="feature" variant="subtle" color="primary">
-                      {{ feature }}
-                    </UBadge>
-                  </div>
-                  <div class="mt-6">
-                    <UButton
-                      v-if="subscription?.stripeCustomerId"
-                      color="primary"
-                      variant="soft"
-                      :loading="isLoading"
-                      @click="manageBilling"
-                    >
-                      <UIcon name="i-lucide-credit-card" class="w-4 h-4 mr-2" />
-                      Manage Subscription
-                    </UButton>
-                  </div>
-                </div>
-              </div>
-            </UCard>
-          </template>
+          <!-- Alpha celebration gif (keeping the fun element) -->
+          <div v-if="isAlpha" class="flex justify-center">
+            <img
+              src="https://media.giphy.com/media/scftgIpdF1V3eFED52/giphy.gif"
+              alt="Dancing celebration"
+              class="w-32 h-32 rounded-lg object-cover"
+            />
+          </div>
 
           <!-- Billing Info -->
           <UCard>
