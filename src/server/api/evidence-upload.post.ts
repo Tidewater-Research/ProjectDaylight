@@ -1,7 +1,14 @@
 import { readFiles } from 'h3-formidable'
 import fs from 'fs/promises'
 import { serverSupabaseClient, serverSupabaseUser } from '#supabase/server'
+import { canUploadEvidence } from '../utils/subscription'
 
+/**
+ * POST /api/evidence-upload
+ * 
+ * Uploads evidence files to storage.
+ * Feature gating: Free users limited to 10 evidence uploads.
+ */
 export default defineEventHandler(async (event) => {
   const supabase = await serverSupabaseClient(event)
 
@@ -13,6 +20,15 @@ export default defineEventHandler(async (event) => {
     throw createError({
       statusCode: 401,
       statusMessage: 'Unauthorized - Please log in'
+    })
+  }
+
+  // Check if user can upload evidence (feature gating)
+  const evidenceCheck = await canUploadEvidence(event, userId)
+  if (!evidenceCheck.allowed) {
+    throw createError({
+      statusCode: 403,
+      statusMessage: evidenceCheck.reason || 'Evidence upload limit reached. Please upgrade to Pro.'
     })
   }
 

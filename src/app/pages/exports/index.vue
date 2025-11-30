@@ -10,6 +10,9 @@ const UDropdownMenu = resolveComponent('UDropdownMenu')
 const UTooltip = resolveComponent('UTooltip')
 
 const toast = useToast()
+
+// Subscription check for feature gating (exports are Pro-only)
+const { canExport, isFree } = useSubscription()
 const router = useRouter()
 
 interface ExportsResponse {
@@ -290,6 +293,7 @@ function openExport(row: Row<SavedExport>) {
             size="sm"
             icon="i-lucide-plus"
             to="/exports/new"
+            :disabled="isFree && !canExport"
           >
             New Export
           </UButton>
@@ -298,8 +302,17 @@ function openExport(row: Row<SavedExport>) {
     </template>
 
     <template #body>
+      <!-- Feature gate: Exports are Pro-only -->
+      <div v-if="isFree && !canExport" class="p-4 sm:p-6">
+        <UpgradePrompt
+          title="Exports are a Pro feature"
+          description="Create court-ready timeline documents, PDF exports, and shareable summaries for your attorney. Upgrade to Pro to unlock exports."
+          variant="card"
+        />
+      </div>
+
       <!-- Loading -->
-      <div v-if="status === 'pending'" class="flex items-center justify-center py-16">
+      <div v-else-if="status === 'pending'" class="flex items-center justify-center py-16">
         <UIcon name="i-lucide-loader-2" class="size-8 animate-spin text-muted" />
       </div>
 

@@ -1,4 +1,5 @@
 import { serverSupabaseClient, serverSupabaseUser } from '#supabase/server'
+import { canExport } from '../utils/subscription'
 
 interface ExportCreateBody {
   title: string
@@ -27,6 +28,15 @@ export default defineEventHandler(async (event) => {
     throw createError({
       statusCode: 401,
       statusMessage: 'Unauthorized - Please log in'
+    })
+  }
+
+  // Check if user can create exports (feature gating - Pro only)
+  const exportCheck = await canExport(event, userId)
+  if (!exportCheck.allowed) {
+    throw createError({
+      statusCode: 403,
+      statusMessage: exportCheck.reason || 'Exports are a Pro feature. Please upgrade to create court-ready documents.'
     })
   }
 

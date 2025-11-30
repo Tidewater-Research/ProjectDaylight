@@ -3,6 +3,15 @@ import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useObjectUrl } from '@vueuse/core'
 import { getDateStringInTimezone, detectBrowserTimezone } from '~/composables/useTimezone'
 
+// Subscription check for feature gating
+const { 
+  canCreateJournalEntry, 
+  journalEntriesRemaining,
+  isFree,
+  limits,
+  incrementJournalEntryCount 
+} = useSubscription()
+
 // =============================================================================
 // Types
 // =============================================================================
@@ -83,11 +92,21 @@ const effectiveEventText = computed(() => {
 })
 
 const canProceedToEvidence = computed(() => {
+  // Block if at limit - don't let users proceed to waste LLM tokens
+  if (isFree.value && !canCreateJournalEntry.value) return false
   return hasEventContent.value && !state.value.isRecording && !isTranscribing.value
 })
 
 const canSubmit = computed(() => {
+  // Block if at limit - don't let users waste LLM tokens on extraction
+  if (isFree.value && !canCreateJournalEntry.value) return false
   return hasEventContent.value && !isSubmitting.value
+})
+
+// Block recording/transcription when at limit to avoid wasting Whisper tokens
+const canRecord = computed(() => {
+  if (isFree.value && !canCreateJournalEntry.value) return false
+  return isSupported.value
 })
 
 const hasEvidence = computed(() => state.value.evidence.length > 0)
@@ -433,6 +452,9 @@ async function confirmAndSave() {
       }
     })
 
+    // Increment usage count on success
+    incrementJournalEntryCount()
+
     // Prefer navigating to the newly created journal entry if available
     if (result.journalEntryId) {
       await navigateTo(`/journal/${result.journalEntryId}`)
@@ -530,6 +552,27 @@ function loadTestText(sample: string) {
 
     <template #body>
       <div class="max-w-2xl w-full mx-auto">
+        <!-- Feature gate: Free tier limit check -->
+        <div v-if="isFree && !canCreateJournalEntry" class="mb-6">
+          <UpgradePrompt
+            title="Journal entry limit reached"
+            description="You've used all 5 journal entries on the free plan. Upgrade to Pro for unlimited entries and keep documenting your case."
+            variant="card"
+          />
+        </div>
+
+        <!-- Free tier remaining warning -->
+        <UpgradePrompt
+          v-else-if="isFree && journalEntriesRemaining <= 2 && journalEntriesRemaining > 0"
+          :title="`${journalEntriesRemaining} journal ${journalEntriesRemaining === 1 ? 'entry' : 'entries'} remaining`"
+          description="Upgrade to Pro for unlimited journal entries."
+          :show-remaining="true"
+          :remaining="journalEntriesRemaining"
+          remaining-label="entries left"
+          variant="inline"
+          class="mb-6"
+        />
+
         <!-- Progress Steps -->
         <div class="flex items-center justify-center gap-2 mb-8">
           <div
@@ -568,7 +611,7 @@ function loadTestText(sample: string) {
             </div>
           </template>
 
-          <div class="space-y-6">
+          <div class="space-y-6" :class="{ 'opacity-50 pointer-events-none': isFree && !canCreateJournalEntry }">
             <!-- Voice Recording -->
             <div class="space-y-3">
               <div class="flex items-center justify-between">
@@ -584,7 +627,7 @@ function loadTestText(sample: string) {
                     :color="state.isRecording ? 'error' : 'primary'"
                     :icon="state.isRecording ? 'i-lucide-square' : 'i-lucide-mic'"
                     size="lg"
-                    :disabled="!isSupported"
+                    :disabled="!canRecord"
                     @click="toggleRecording"
                   >
                     {{ state.isRecording ? 'Stop Recording' : 'Start Recording' }}
@@ -596,7 +639,7 @@ function loadTestText(sample: string) {
                     variant="outline"
                     icon="i-lucide-sparkles"
                     :loading="isTranscribing"
-                    :disabled="state.isRecording || isTranscribing"
+                    :disabled="state.isRecording || isTranscribing || !canRecord"
                     @click="transcribeRecording"
                   >
                     Transcribe
@@ -676,7 +719,11 @@ function loadTestText(sample: string) {
           </div>
 
           <template #footer>
-            <div class="flex justify-end">
+            <div class="flex items-center justify-between gap-4">
+              <p v-if="isFree && !canCreateJournalEntry" class="text-sm text-error">
+                Upgrade to continue documenting your case.
+              </p>
+              <div v-else />
               <UButton
                 color="primary"
                 icon="i-lucide-arrow-right"
@@ -922,7 +969,7 @@ function loadTestText(sample: string) {
                 color="primary"
                 icon="i-lucide-check"
                 :loading="isSubmitting"
-                :disabled="!state.extractionResult?.extraction?.events?.length"
+                :disabled="!state.extractionResult?.extraction?.events?.length || (isFree && !canCreateJournalEntry)"
                 @click="confirmAndSave"
               >
                 Save Entry
@@ -930,6 +977,16 @@ function loadTestText(sample: string) {
             </div>
           </template>
         </UCard>
+
+        <!-- Limit reached alert (backup for review step) -->
+        <UAlert
+          v-if="state.step === 'review' && isFree && !canCreateJournalEntry"
+          color="error"
+          variant="subtle"
+          icon="i-lucide-alert-circle"
+          title="Free plan limit reached (5 journal entries). Upgrade to Pro for unlimited entries."
+          class="mb-6"
+        />
 
         <!-- Error Alert -->
         <UAlert

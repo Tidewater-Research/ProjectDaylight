@@ -1,6 +1,14 @@
 <script setup lang="ts">
 import type { EvidenceItem } from '~/types'
 
+// Subscription check for feature gating
+const { 
+  canUploadEvidence, 
+  evidenceUploadsRemaining,
+  isFree,
+  limits
+} = useSubscription()
+
 // Fetch evidence via SSR-aware useFetch and cookie-based auth
 const { data, status, error, refresh } = await useFetch<EvidenceItem[]>('/api/evidence', {
   headers: useRequestHeaders(['cookie'])
@@ -121,6 +129,23 @@ function sourceLabel(type: EvidenceItem['sourceType']) {
 
     <template #body>
       <div class="space-y-4">
+        <!-- Feature gate: Free tier limit warning -->
+        <UpgradePrompt
+          v-if="isFree && !canUploadEvidence"
+          title="Evidence upload limit reached"
+          description="You've used all 10 evidence uploads on the free plan. Upgrade to Pro for unlimited uploads."
+          variant="banner"
+        />
+        <UpgradePrompt
+          v-else-if="isFree && evidenceUploadsRemaining <= 3 && evidenceUploadsRemaining > 0"
+          :title="`${evidenceUploadsRemaining} evidence uploads remaining`"
+          description="Upgrade to Pro for unlimited evidence uploads."
+          :show-remaining="true"
+          :remaining="evidenceUploadsRemaining"
+          remaining-label="uploads left"
+          variant="inline"
+        />
+
         <p class="text-sm text-muted">
           Central library of your uploaded evidence and AI-suggested records from
           <code class="px-1 rounded bg-subtle text-xs text-muted border border-default">/api/evidence</code>.

@@ -623,6 +623,7 @@ export type Database = {
           email: string | null
           full_name: string | null
           id: string
+          is_employee: boolean | null
           onboarding_completed_at: string | null
           timezone: string | null
           updated_at: string
@@ -633,6 +634,7 @@ export type Database = {
           email?: string | null
           full_name?: string | null
           id: string
+          is_employee?: boolean | null
           onboarding_completed_at?: string | null
           timezone?: string | null
           updated_at?: string
@@ -643,6 +645,7 @@ export type Database = {
           email?: string | null
           full_name?: string | null
           id?: string
+          is_employee?: boolean | null
           onboarding_completed_at?: string | null
           timezone?: string | null
           updated_at?: string

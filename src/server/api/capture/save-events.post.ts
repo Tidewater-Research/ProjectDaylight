@@ -1,10 +1,13 @@
 import { serverSupabaseClient, serverSupabaseUser } from '#supabase/server'
+import { canCreateJournalEntry } from '../../utils/subscription'
 
 /**
  * POST /api/capture/save-events
  * 
  * Saves the extracted events to the database and links them to evidence.
  * This is called after the user reviews and confirms the extraction.
+ * 
+ * Feature gating: Free users limited to 5 journal entries.
  */
 
 interface ExtractionParticipants {
@@ -72,6 +75,15 @@ export default defineEventHandler(async (event) => {
     throw createError({
       statusCode: 401,
       statusMessage: 'Unauthorized - Please log in'
+    })
+  }
+
+  // Check if user can create journal entries (feature gating)
+  const journalCheck = await canCreateJournalEntry(event, userId)
+  if (!journalCheck.allowed) {
+    throw createError({
+      statusCode: 403,
+      statusMessage: journalCheck.reason || 'Journal entry limit reached. Please upgrade to Pro.'
     })
   }
 

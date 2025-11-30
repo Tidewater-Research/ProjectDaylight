@@ -5,6 +5,9 @@ const session = useSupabaseSession()
 const toast = useToast()
 const router = useRouter()
 
+// Subscription check for feature gating (exports are Pro-only)
+const { canExport, isFree } = useSubscription()
+
 interface CaseRow {
   id: string
   title: string
@@ -448,12 +451,21 @@ async function generateAndSaveExport() {
 
     <template #body>
       <div class="space-y-6 p-4 sm:p-6">
-        <p class="max-w-3xl text-sm text-muted">
+        <!-- Feature gate: Exports are Pro-only -->
+        <UpgradePrompt
+          v-if="isFree && !canExport"
+          title="Exports are a Pro feature"
+          description="Create court-ready timeline documents, PDF exports, and shareable summaries for your attorney. Upgrade to Pro to unlock exports."
+          variant="card"
+          class="max-w-3xl"
+        />
+
+        <p v-else class="max-w-3xl text-sm text-muted">
           Generate a plain‑text, court‑ready markdown summary you can paste into an email, document, or portal.
           We'll pull in details from your timeline and evidence data.
         </p>
 
-        <UCard class="max-w-3xl">
+        <UCard v-if="!isFree || canExport" class="max-w-3xl">
           <div class="space-y-6">
             <!-- Case details -->
             <div class="space-y-3">

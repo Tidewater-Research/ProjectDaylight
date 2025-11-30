@@ -115,7 +115,9 @@ export default defineNuxtConfig({
     // Server-only secrets
     supabaseServiceKey: process.env.SUPABASE_SECRET_KEY || '',
     public: {
-      baseUrl: process.env.PUBLIC_BASE_URL || 'https://www.daylight.legal'
+      baseUrl: process.env.PUBLIC_BASE_URL || 'https://www.daylight.legal',
+      // Dev mode flag - enables dev-only features like tier switching
+      devMode: process.env.NODE_ENV === 'development' || process.env.NUXT_PUBLIC_DEV_MODE === 'true'
     }
   },
 

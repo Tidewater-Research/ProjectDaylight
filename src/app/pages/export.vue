@@ -9,6 +9,9 @@ import type {
   ExportMetadata
 } from '~/types'
 
+// Subscription check for feature gating
+const { canExport, isFetched: subscriptionFetched } = useSubscription()
+
 // Supabase session; data fetching uses cookie-based auth via useFetch
 const session = useSupabaseSession()
 const toast = useToast()
@@ -1046,8 +1049,17 @@ function getFocusColor(focus: ExportFocus) {
     </template>
 
     <template #body>
+      <!-- Feature gate: Pro-only -->
+      <div v-if="subscriptionFetched && !canExport" class="max-w-2xl mx-auto py-8">
+        <UpgradePrompt
+          title="Exports are a Pro feature"
+          description="Upgrade to Pro to generate court-ready PDF and markdown reports. Share professional documentation with your attorney or the court."
+          variant="card"
+        />
+      </div>
+
       <!-- History view -->
-      <div v-if="viewMode === 'history'" class="space-y-4">
+      <div v-else-if="viewMode === 'history'" class="space-y-4">
         <div v-if="exportsStatus === 'pending'" class="flex items-center justify-center py-12">
           <UIcon name="i-lucide-loader-2" class="size-6 animate-spin text-muted" />
         </div>

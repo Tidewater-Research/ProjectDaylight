@@ -1,8 +1,41 @@
 <script setup lang="ts">
-import type { BillingInfo, BillingInterval, PricingPlan } from '~/types'
+import type { BillingInfo, BillingInterval, PricingPlan, PlanTier } from '~/types'
 
 const toast = useToast()
 const route = useRoute()
+const config = useRuntimeConfig()
+
+// Dev mode check - only on client to avoid hydration mismatch
+const isDevMode = ref(false)
+const isEmployee = ref(false)
+const showTierSwitcher = computed(() => isDevMode.value || isEmployee.value)
+
+onMounted(async () => {
+  isDevMode.value = config.public.devMode === true
+  
+  // Check if user is an employee
+  if (billingData.value?.subscription) {
+    // Fetch employee status from profile
+    try {
+      const { data } = await useSupabaseClient()
+        .from('profiles')
+        .select('is_employee')
+        .single()
+      isEmployee.value = data?.is_employee === true
+    } catch {
+      // Ignore errors - just don't show tier switcher
+    }
+  }
+})
+
+// Subscription composable (for refreshing global state after tier changes)
+const { 
+  refresh: refreshSubscription,
+  journalEntryCount,
+  evidenceUploadCount,
+  limits,
+  isFree
+} = useSubscription()
 
 // Check for success/canceled from Stripe redirect
 onMounted(() => {
@@ -38,6 +71,59 @@ const stripeConfigured = computed(() => billingData.value?.stripeConfigured ?? f
 // Local state
 const selectedInterval = ref<BillingInterval>('month')
 const isLoading = ref(false)
+
+// Dev tier switching
+const devTierOptions: { label: string; value: PlanTier }[] = [
+  { label: 'Free', value: 'free' },
+  { label: 'Pro', value: 'pro' },
+  { label: 'Alpha', value: 'alpha' }
+]
+const devSelectedTier = ref<PlanTier>('free')
+const devSwitching = ref(false)
+
+// Update devSelectedTier when subscription loads
+watch(subscription, (sub) => {
+  if (sub?.planTier) {
+    devSelectedTier.value = sub.planTier
+  } else {
+    devSelectedTier.value = 'free'
+  }
+}, { immediate: true })
+
+async function devSetTier() {
+  devSwitching.value = true
+  
+  try {
+    const response = await $fetch<{ success: boolean; tier: string; message: string }>('/api/dev/set-tier', {
+      method: 'POST',
+      body: { tier: devSelectedTier.value }
+    })
+
+    toast.add({
+      title: 'Tier updated',
+      description: response.message,
+      color: 'success',
+      icon: 'i-lucide-check-circle'
+    })
+
+    // Refresh billing data and global subscription state
+    await Promise.all([
+      refresh(),
+      refreshSubscription()
+    ])
+
+    // Force a page reload to ensure all components update
+    window.location.reload()
+  } catch (error: any) {
+    toast.add({
+      title: 'Failed to update tier',
+      description: error?.data?.statusMessage || 'Something went wrong',
+      color: 'error',
+      icon: 'i-lucide-alert-circle'
+    })
+    devSwitching.value = false
+  }
+}
 
 // Get current plan
 const currentPlan = computed(() => {
@@ -270,6 +356,104 @@ function transformPlan(plan: PricingPlan, isCurrent: boolean) {
                 </UButton>
               </div>
             </div>
+            </UCard>
+
+          <!-- Usage Summary for Free Tier -->
+          <UCard v-if="!hasPremiumAccess">
+            <template #header>
+              <div class="flex items-center gap-2">
+                <UIcon name="i-lucide-gauge" class="w-5 h-5 text-primary" />
+                <span class="font-medium text-highlighted">Current Usage</span>
+              </div>
+            </template>
+
+            <div class="space-y-5">
+              <!-- Journal Entries Usage -->
+              <div class="space-y-2">
+                <div class="flex items-center justify-between text-sm">
+                  <div class="flex items-center gap-2">
+                    <UIcon name="i-lucide-book-open" class="w-4 h-4 text-muted" />
+                    <span class="text-highlighted">Journal Entries</span>
+                  </div>
+                  <div class="flex items-center gap-2">
+                    <span :class="journalEntryCount > limits.journalEntries ? 'text-error font-medium' : 'text-muted'">
+                      {{ journalEntryCount }} / {{ limits.journalEntries }}
+                    </span>
+                    <UBadge 
+                      v-if="journalEntryCount >= limits.journalEntries" 
+                      :color="journalEntryCount > limits.journalEntries ? 'error' : 'warning'" 
+                      variant="subtle" 
+                      size="xs"
+                    >
+                      {{ journalEntryCount > limits.journalEntries ? 'Over limit' : 'Limit reached' }}
+                    </UBadge>
+                  </div>
+                </div>
+                <UProgress 
+                  :model-value="Math.min(journalEntryCount, limits.journalEntries)" 
+                  :max="limits.journalEntries"
+                  :color="journalEntryCount >= limits.journalEntries ? 'error' : journalEntryCount >= limits.journalEntries * 0.8 ? 'warning' : 'primary'"
+                  size="sm"
+                />
+              </div>
+
+              <!-- Evidence Uploads Usage -->
+              <div class="space-y-2">
+                <div class="flex items-center justify-between text-sm">
+                  <div class="flex items-center gap-2">
+                    <UIcon name="i-lucide-paperclip" class="w-4 h-4 text-muted" />
+                    <span class="text-highlighted">Evidence Uploads</span>
+                  </div>
+                  <div class="flex items-center gap-2">
+                    <span :class="evidenceUploadCount > limits.evidenceUploads ? 'text-error font-medium' : 'text-muted'">
+                      {{ evidenceUploadCount }} / {{ limits.evidenceUploads }}
+                    </span>
+                    <UBadge 
+                      v-if="evidenceUploadCount >= limits.evidenceUploads" 
+                      :color="evidenceUploadCount > limits.evidenceUploads ? 'error' : 'warning'" 
+                      variant="subtle" 
+                      size="xs"
+                    >
+                      {{ evidenceUploadCount > limits.evidenceUploads ? 'Over limit' : 'Limit reached' }}
+                    </UBadge>
+                  </div>
+                </div>
+                <UProgress 
+                  :model-value="Math.min(evidenceUploadCount, limits.evidenceUploads)" 
+                  :max="limits.evidenceUploads"
+                  color="primary"
+                  size="sm"
+                />
+              </div>
+
+              <!-- Over limit notice -->
+              <UAlert
+                v-if="journalEntryCount > limits.journalEntries || evidenceUploadCount > limits.evidenceUploads"
+                color="warning"
+                variant="subtle"
+                icon="i-lucide-alert-triangle"
+              >
+                <template #title>You've exceeded your free plan limits</template>
+                <template #description>
+                  Some features may be restricted. Upgrade to Pro for unlimited access.
+                </template>
+              </UAlert>
+
+              <!-- Locked features -->
+              <div class="pt-2 border-t border-default">
+                <p class="text-xs text-muted mb-2">Locked on Free plan:</p>
+                <div class="flex flex-wrap gap-2">
+                  <UBadge variant="subtle" color="neutral" size="sm">
+                    <UIcon name="i-lucide-lock" class="w-3 h-3 mr-1" />
+                    Court-ready Exports
+                  </UBadge>
+                  <UBadge variant="subtle" color="neutral" size="sm">
+                    <UIcon name="i-lucide-lock" class="w-3 h-3 mr-1" />
+                    AI Insights
+                  </UBadge>
+                </div>
+              </div>
+            </div>
           </UCard>
 
           <!-- Upgrade Section (for free users) -->
@@ -336,9 +520,9 @@ function transformPlan(plan: PricingPlan, isCurrent: boolean) {
               class="mt-8"
             >
               <template #compare>
-                <div class="grid md:grid-cols-3 gap-4 pt-4">
+                <div class="grid md:grid-cols-2 gap-4 pt-4">
                   <UPricingPlan
-                    v-for="plan in plans"
+                    v-for="plan in plans.filter(p => p.tier !== 'alpha')"
                     :key="plan.id"
                     v-bind="transformPlan(plan, plan.tier === (subscription?.planTier ?? 'free'))"
                     :class="{ 'opacity-60': plan.comingSoon }"
@@ -396,6 +580,18 @@ function transformPlan(plan: PricingPlan, isCurrent: boolean) {
                       {{ feature }}
                     </UBadge>
                   </div>
+                  <div class="mt-6">
+                    <UButton
+                      v-if="subscription?.stripeCustomerId"
+                      color="primary"
+                      variant="soft"
+                      :loading="isLoading"
+                      @click="manageBilling"
+                    >
+                      <UIcon name="i-lucide-credit-card" class="w-4 h-4 mr-2" />
+                      Manage Subscription
+                    </UButton>
+                  </div>
                 </div>
               </div>
             </UCard>
@@ -436,6 +632,53 @@ function transformPlan(plan: PricingPlan, isCurrent: boolean) {
               </div>
             </div>
           </UCard>
+
+          <!-- Tier Switcher for employees/dev mode (client-only to avoid hydration mismatch) -->
+          <ClientOnly>
+            <UCard v-if="showTierSwitcher" class="border-dashed border-2 border-warning/50 bg-warning/5">
+              <template #header>
+                <div class="flex items-center gap-2">
+                  <UIcon name="i-lucide-flask-conical" class="w-5 h-5 text-warning" />
+                  <span class="font-medium text-highlighted">Tier Switcher</span>
+                  <UBadge color="warning" variant="subtle" size="xs">{{ isEmployee ? 'EMPLOYEE' : 'DEV' }}</UBadge>
+                </div>
+              </template>
+
+              <div class="space-y-4">
+                <p class="text-sm text-muted">
+                  Switch your subscription tier for testing. {{ isEmployee ? 'Available because you are an employee.' : 'Only available in development mode.' }}
+                </p>
+
+                <div class="flex flex-wrap items-end gap-3">
+                  <div class="space-y-1">
+                    <label class="text-xs font-medium text-muted">Select Tier</label>
+                    <USelect
+                      v-model="devSelectedTier"
+                      :items="devTierOptions"
+                      value-attribute="value"
+                      option-attribute="label"
+                      class="w-40"
+                    />
+                  </div>
+
+                  <UButton
+                    color="warning"
+                    variant="solid"
+                    :loading="devSwitching"
+                    :disabled="devSwitching"
+                    @click="devSetTier"
+                  >
+                    Apply Tier
+                  </UButton>
+                </div>
+
+                <div class="text-xs text-muted/70 flex items-center gap-1.5">
+                  <UIcon name="i-lucide-info" class="w-3.5 h-3.5" />
+                  <span>Current: <strong>{{ subscription?.planTier || 'free' }}</strong> ({{ subscription?.status || 'no subscription' }})</span>
+                </div>
+              </div>
+            </UCard>
+          </ClientOnly>
 
           <!-- Development Notice -->
           <UAlert
