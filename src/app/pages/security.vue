@@ -132,29 +132,10 @@ const dataPromises = [
         </div>
       </section>
 
-      <USeparator />
-
-      <!-- What We Don't Have (Honesty Section) -->
-      <section class="space-y-4">
-        <h2 class="text-2xl font-semibold text-highlighted">
-          Being transparent
-        </h2>
-        <div class="rounded-xl border border-default bg-elevated/30 p-6 space-y-4">
-          <p class="text-muted leading-relaxed">
-            We believe in being upfront. Here's what we don't have yet:
-          </p>
-          <ul class="list-disc list-inside text-muted space-y-2 ml-4">
-            <li>We're not SOC 2 certified (yet)—that's on our roadmap as we grow</li>
-            <li>We don't have a bug bounty program at this time</li>
-            <li>We're a small team, which means faster support but we're not a Fortune 500 company</li>
-          </ul>
-          <p class="text-muted leading-relaxed">
-            What we can promise: we've built Daylight using modern security best practices from day one, and your data protection is never an afterthought. We use the same infrastructure trusted by thousands of companies handling sensitive data.
-          </p>
-        </div>
-      </section>
-
-      <USeparator />
+      <!-- Transparency Note -->
+      <p class="text-muted leading-relaxed text-center max-w-2xl mx-auto">
+        We're a small team, and we're improving our security practices every day. We've built Daylight using modern security best practices from day one, and we use the same infrastructure trusted by thousands of companies handling sensitive data.
+      </p>
 
       <!-- Contact -->
       <section class="space-y-4">
