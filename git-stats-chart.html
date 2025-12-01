@@ -1,0 +1,501 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Git Activity — Daylight</title>
+  <script src="https://d3js.org/d3.v7.min.js"></script>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    :root {
+      --sky-50: #f0f9ff;
+      --sky-100: #e0f2fe;
+      --sky-200: #bae6fd;
+      --sky-300: #7dd3fc;
+      --sky-400: #38bdf8;
+      --sky-500: #0ea5e9;
+      --sky-600: #0284c7;
+      --sky-700: #0369a1;
+      --slate-50: #f8fafc;
+      --slate-100: #f1f5f9;
+      --slate-200: #e2e8f0;
+      --slate-300: #cbd5e1;
+      --slate-400: #94a3b8;
+      --slate-500: #64748b;
+      --slate-600: #475569;
+      --slate-700: #334155;
+      --slate-800: #1e293b;
+      --slate-900: #0f172a;
+      --emerald-500: #10b981;
+      --emerald-600: #059669;
+      --rose-500: #f43f5e;
+      --rose-600: #e11d48;
+    }
+
+    body {
+      font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+      background: linear-gradient(180deg, var(--slate-50) 0%, var(--sky-50) 100%);
+      min-height: 100vh;
+      color: var(--slate-800);
+      padding: 40px;
+    }
+
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+    }
+
+    header {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      margin-bottom: 40px;
+    }
+
+    .logo {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .logo-icon {
+      width: 40px;
+      height: 40px;
+    }
+
+    .logo-text {
+      font-size: 1.5rem;
+      font-weight: 700;
+      color: var(--slate-800);
+    }
+
+    .header-divider {
+      width: 1px;
+      height: 32px;
+      background: var(--slate-200);
+    }
+
+    .page-title {
+      font-size: 1.25rem;
+      font-weight: 500;
+      color: var(--slate-500);
+    }
+
+    .chart-container {
+      background: white;
+      border: 1px solid var(--slate-200);
+      border-radius: 16px;
+      padding: 32px;
+      box-shadow: 
+        0 1px 3px rgba(0, 0, 0, 0.04),
+        0 6px 16px rgba(0, 0, 0, 0.04);
+    }
+
+    .chart-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 24px;
+    }
+
+    .chart-title {
+      font-size: 1.125rem;
+      font-weight: 600;
+      color: var(--slate-800);
+    }
+
+    .legend {
+      display: flex;
+      gap: 24px;
+    }
+
+    .legend-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 0.875rem;
+      color: var(--slate-600);
+    }
+
+    .legend-dot {
+      width: 12px;
+      height: 12px;
+      border-radius: 3px;
+    }
+
+    .legend-dot.added {
+      background: var(--emerald-500);
+    }
+
+    .legend-dot.deleted {
+      background: var(--rose-500);
+    }
+
+    #chart {
+      width: 100%;
+    }
+
+    .bar-added {
+      fill: var(--emerald-500);
+      transition: fill 0.15s ease;
+    }
+
+    .bar-added:hover {
+      fill: var(--emerald-600);
+      cursor: pointer;
+    }
+
+    .bar-deleted {
+      fill: var(--rose-500);
+      transition: fill 0.15s ease;
+    }
+
+    .bar-deleted:hover {
+      fill: var(--rose-600);
+      cursor: pointer;
+    }
+
+    .axis text {
+      font-family: 'DM Sans', sans-serif;
+      font-size: 12px;
+      fill: var(--slate-500);
+    }
+
+    .axis path,
+    .axis line {
+      stroke: var(--slate-200);
+    }
+
+    .grid line {
+      stroke: var(--slate-100);
+    }
+
+    .grid path {
+      stroke-width: 0;
+    }
+
+    .tooltip {
+      position: absolute;
+      background: white;
+      border: 1px solid var(--slate-200);
+      border-radius: 10px;
+      padding: 12px 16px;
+      font-size: 0.875rem;
+      pointer-events: none;
+      opacity: 0;
+      transition: opacity 0.15s ease;
+      box-shadow: 
+        0 4px 12px rgba(0, 0, 0, 0.08),
+        0 1px 3px rgba(0, 0, 0, 0.04);
+      z-index: 100;
+    }
+
+    .tooltip .date {
+      color: var(--slate-800);
+      font-weight: 600;
+      margin-bottom: 8px;
+    }
+
+    .tooltip .stat {
+      display: flex;
+      justify-content: space-between;
+      gap: 24px;
+      margin: 4px 0;
+      color: var(--slate-600);
+    }
+
+    .tooltip .added-text {
+      color: var(--emerald-600);
+      font-weight: 500;
+    }
+
+    .tooltip .deleted-text {
+      color: var(--rose-600);
+      font-weight: 500;
+    }
+
+    .stats-summary {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 16px;
+      margin-top: 24px;
+    }
+
+    .stat-card {
+      background: var(--slate-50);
+      border: 1px solid var(--slate-100);
+      border-radius: 12px;
+      padding: 20px;
+    }
+
+    .stat-card .label {
+      font-size: 0.75rem;
+      font-weight: 500;
+      color: var(--slate-500);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      margin-bottom: 4px;
+    }
+
+    .stat-card .value {
+      font-size: 1.75rem;
+      font-weight: 700;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .stat-card.added .value {
+      color: var(--emerald-600);
+    }
+
+    .stat-card.deleted .value {
+      color: var(--rose-600);
+    }
+
+    .stat-card.net .value {
+      color: var(--sky-600);
+    }
+
+    .stat-card.days .value {
+      color: var(--slate-700);
+    }
+
+    @media (max-width: 768px) {
+      .stats-summary {
+        grid-template-columns: repeat(2, 1fr);
+      }
+
+      header {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 8px;
+      }
+
+      .header-divider {
+        display: none;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <div class="logo">
+        <svg class="logo-icon" viewBox="0 0 400 400" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <path
+            d="M68 20 L380 20 Q400 20 400 68 L400 332 Q400 380 332 380 L68 380 Q20 380 20 332 L20 180 A160 160 0 0 0 180 20 Z"
+            fill="#0ea5e9"
+          />
+        </svg>
+        <span class="logo-text">Daylight</span>
+      </div>
+      <div class="header-divider"></div>
+      <span class="page-title">Git Activity</span>
+    </header>
+
+    <div class="chart-container">
+      <div class="chart-header">
+        <h2 class="chart-title">Lines of Code · November 2025</h2>
+        <div class="legend">
+          <div class="legend-item">
+            <div class="legend-dot added"></div>
+            <span>Added</span>
+          </div>
+          <div class="legend-item">
+            <div class="legend-dot deleted"></div>
+            <span>Deleted</span>
+          </div>
+        </div>
+      </div>
+      <div id="chart"></div>
+      <div class="stats-summary" id="stats"></div>
+    </div>
+  </div>
+
+  <div class="tooltip" id="tooltip"></div>
+
+  <script>
+    const data = [
+      { "date": "2025-11-20", "added": 35590, "deleted": 25 },
+      { "date": "2025-11-21", "added": 2583, "deleted": 10802 },
+      { "date": "2025-11-22", "added": 31583, "deleted": 26560 },
+      { "date": "2025-11-23", "added": 4379, "deleted": 4223 },
+      { "date": "2025-11-24", "added": 9873, "deleted": 3193 },
+      { "date": "2025-11-25", "added": 5765, "deleted": 1701 },
+      { "date": "2025-11-26", "added": 6210, "deleted": 2000 },
+      { "date": "2025-11-28", "added": 2779, "deleted": 899 },
+      { "date": "2025-11-29", "added": 217, "deleted": 152 },
+      { "date": "2025-11-30", "added": 2920, "deleted": 798 }
+    ];
+
+    // Parse dates
+    const parseDate = d3.timeParse("%Y-%m-%d");
+    const formatDate = d3.timeFormat("%b %d");
+    const formatDateFull = d3.timeFormat("%B %d, %Y");
+
+    data.forEach(d => {
+      d.dateObj = parseDate(d.date);
+    });
+
+    // Calculate stats
+    const totalAdded = d3.sum(data, d => d.added);
+    const totalDeleted = d3.sum(data, d => d.deleted);
+    const netChange = totalAdded - totalDeleted;
+    const totalDays = data.length;
+
+    // Set up dimensions
+    const margin = { top: 20, right: 20, bottom: 50, left: 70 };
+    const width = 1100 - margin.left - margin.right;
+    const height = 400 - margin.top - margin.bottom;
+
+    // Create SVG
+    const svg = d3.select("#chart")
+      .append("svg")
+      .attr("viewBox", `0 0 ${width + margin.left + margin.right} ${height + margin.top + margin.bottom}`)
+      .attr("preserveAspectRatio", "xMidYMid meet")
+      .append("g")
+      .attr("transform", `translate(${margin.left},${margin.top})`);
+
+    // Scales
+    const x0 = d3.scaleBand()
+      .domain(data.map(d => d.date))
+      .range([0, width])
+      .padding(0.35);
+
+    const x1 = d3.scaleBand()
+      .domain(["added", "deleted"])
+      .range([0, x0.bandwidth()])
+      .padding(0.08);
+
+    const y = d3.scaleLinear()
+      .domain([0, d3.max(data, d => Math.max(d.added, d.deleted)) * 1.08])
+      .nice()
+      .range([height, 0]);
+
+    // Grid
+    svg.append("g")
+      .attr("class", "grid")
+      .call(d3.axisLeft(y)
+        .tickSize(-width)
+        .tickFormat("")
+      );
+
+    // X axis
+    svg.append("g")
+      .attr("class", "axis x-axis")
+      .attr("transform", `translate(0,${height})`)
+      .call(d3.axisBottom(x0).tickFormat(d => formatDate(parseDate(d))))
+      .selectAll("text")
+      .attr("transform", "rotate(-40)")
+      .style("text-anchor", "end")
+      .attr("dx", "-0.5em")
+      .attr("dy", "0.5em");
+
+    // Y axis
+    svg.append("g")
+      .attr("class", "axis y-axis")
+      .call(d3.axisLeft(y)
+        .ticks(6)
+        .tickFormat(d => d3.format(",")(d)));
+
+    // Tooltip
+    const tooltip = d3.select("#tooltip");
+
+    // Bars
+    const dateGroups = svg.selectAll(".date-group")
+      .data(data)
+      .enter()
+      .append("g")
+      .attr("class", "date-group")
+      .attr("transform", d => `translate(${x0(d.date)},0)`);
+
+    // Added bars
+    dateGroups.append("rect")
+      .attr("class", "bar-added")
+      .attr("x", x1("added"))
+      .attr("width", x1.bandwidth())
+      .attr("y", height)
+      .attr("height", 0)
+      .attr("rx", 4)
+      .on("mouseover", function(event, d) {
+        tooltip.style("opacity", 1)
+          .html(`
+            <div class="date">${formatDateFull(d.dateObj)}</div>
+            <div class="stat"><span>Added</span><span class="added-text">+${d3.format(",")(d.added)}</span></div>
+            <div class="stat"><span>Deleted</span><span class="deleted-text">-${d3.format(",")(d.deleted)}</span></div>
+          `);
+      })
+      .on("mousemove", function(event) {
+        tooltip
+          .style("left", (event.pageX + 12) + "px")
+          .style("top", (event.pageY - 10) + "px");
+      })
+      .on("mouseout", function() {
+        tooltip.style("opacity", 0);
+      })
+      .transition()
+      .duration(600)
+      .delay((d, i) => i * 60)
+      .ease(d3.easeCubicOut)
+      .attr("y", d => y(d.added))
+      .attr("height", d => height - y(d.added));
+
+    // Deleted bars
+    dateGroups.append("rect")
+      .attr("class", "bar-deleted")
+      .attr("x", x1("deleted"))
+      .attr("width", x1.bandwidth())
+      .attr("y", height)
+      .attr("height", 0)
+      .attr("rx", 4)
+      .on("mouseover", function(event, d) {
+        tooltip.style("opacity", 1)
+          .html(`
+            <div class="date">${formatDateFull(d.dateObj)}</div>
+            <div class="stat"><span>Added</span><span class="added-text">+${d3.format(",")(d.added)}</span></div>
+            <div class="stat"><span>Deleted</span><span class="deleted-text">-${d3.format(",")(d.deleted)}</span></div>
+          `);
+      })
+      .on("mousemove", function(event) {
+        tooltip
+          .style("left", (event.pageX + 12) + "px")
+          .style("top", (event.pageY - 10) + "px");
+      })
+      .on("mouseout", function() {
+        tooltip.style("opacity", 0);
+      })
+      .transition()
+      .duration(600)
+      .delay((d, i) => i * 60 + 80)
+      .ease(d3.easeCubicOut)
+      .attr("y", d => y(d.deleted))
+      .attr("height", d => height - y(d.deleted));
+
+    // Stats summary
+    const statsHTML = `
+      <div class="stat-card added">
+        <div class="label">Lines Added</div>
+        <div class="value">+${d3.format(",")(totalAdded)}</div>
+      </div>
+      <div class="stat-card deleted">
+        <div class="label">Lines Deleted</div>
+        <div class="value">-${d3.format(",")(totalDeleted)}</div>
+      </div>
+      <div class="stat-card net">
+        <div class="label">Net Change</div>
+        <div class="value">${netChange >= 0 ? '+' : ''}${d3.format(",")(netChange)}</div>
+      </div>
+      <div class="stat-card days">
+        <div class="label">Active Days</div>
+        <div class="value">${totalDays}</div>
+      </div>
+    `;
+    document.getElementById("stats").innerHTML = statsHTML;
+  </script>
+</body>
+</html>
