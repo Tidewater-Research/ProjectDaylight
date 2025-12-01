@@ -125,6 +125,13 @@ Professional feel requires smooth loading experience.
 
 ## NICE-TO-HAVE (Post-MVP)
 
+### TypeScript & Code Quality
+- [ ] Regenerate `database.types.ts` to include missing tables (`subscriptions`, `exports`, `bug_reports`)
+- [ ] Remove `as any` casts in server code once types are regenerated
+- [ ] Extract shared `TIER_LIMITS` constant to `~/shared/constants/subscription.ts` (currently duplicated in `useSubscription.ts` and `server/utils/subscription.ts`)
+- [ ] Replace manual `SubscriptionRow` interface with `Tables<'subscriptions'>` from generated types
+- [ ] Add consistent response typing to all `useFetch`/`$fetch` calls
+
 ### Error Handling Polish
 - [ ] Review API error responses for user-friendliness
 - [ ] Add fallback states for API failures
