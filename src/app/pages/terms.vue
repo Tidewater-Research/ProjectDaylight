@@ -148,7 +148,7 @@ definePageMeta({
           </h2>
           <p class="text-muted leading-relaxed">
             For questions about these Terms and Conditions, please contact us at 
-            <a href="mailto:kyle@monumentlabs.io" class="text-primary hover:underline">kyle@monumentlabs.io</a>.
+            <a href="mailto:hello@monumentlabs.io" class="text-primary hover:underline">hello@monumentlabs.io</a>.
           </p>
         </section>
       </div>

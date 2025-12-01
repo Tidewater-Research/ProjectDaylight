@@ -144,7 +144,7 @@ const dataPromises = [
         </h2>
         <p class="text-muted leading-relaxed">
           If you have specific security questions or concerns, we're happy to discuss them. 
-          Reach out at <a href="mailto:kyle@monumentlabs.io" class="text-primary hover:underline">kyle@monumentlabs.io</a>.
+          Reach out at <a href="mailto:hello@monumentlabs.io" class="text-primary hover:underline">hello@monumentlabs.io</a>.
         </p>
       </section>
 

@@ -124,7 +124,7 @@ definePageMeta({
           </h2>
           <p class="text-muted leading-relaxed">
             If you have any questions about this privacy policy or our data practices, please contact us at 
-            <a href="mailto:kyle@monumentlabs.io" class="text-primary hover:underline">kyle@monumentlabs.io</a>.
+            <a href="mailto:hello@monumentlabs.io" class="text-primary hover:underline">hello@monumentlabs.io</a>.
           </p>
         </section>
       </div>
