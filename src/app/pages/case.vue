@@ -52,6 +52,40 @@ const caseId = ref<string | null>(null)
 
 const activeCaseTab = ref<'overview' | 'people' | 'goals'>('overview')
 
+// Responsive tab labels
+const isSmallScreen = ref(false)
+
+function updateScreenSize() {
+  isSmallScreen.value = window.innerWidth < 640
+}
+
+onMounted(() => {
+  updateScreenSize()
+  window.addEventListener('resize', updateScreenSize)
+})
+
+onUnmounted(() => {
+  window.removeEventListener('resize', updateScreenSize)
+})
+
+const tabItems = computed(() => [
+  {
+    label: 'Basics',
+    value: 'overview',
+    icon: 'i-lucide-file-text'
+  },
+  {
+    label: isSmallScreen.value ? 'People' : 'People & children',
+    value: 'people',
+    icon: 'i-lucide-users'
+  },
+  {
+    label: isSmallScreen.value ? 'Goals' : 'Goals & risks',
+    value: 'goals',
+    icon: 'i-lucide-target'
+  }
+])
+
 // Form state
 const title = ref('')
 const caseNumber = ref('')
@@ -363,23 +397,7 @@ watch(session, (newSession) => {
             <UTabs
               v-else
               v-model="activeCaseTab"
-              :items="[
-                {
-                  label: 'Basics',
-                  value: 'overview',
-                  icon: 'i-lucide-file-text'
-                },
-                {
-                  label: 'People & children',
-                  value: 'people',
-                  icon: 'i-lucide-users'
-                },
-                {
-                  label: 'Goals & risks',
-                  value: 'goals',
-                  icon: 'i-lucide-target'
-                }
-              ]"
+              :items="tabItems"
               color="primary"
               variant="link"
             />
@@ -518,7 +536,7 @@ watch(session, (newSession) => {
               >
                 <div class="grid gap-6 md:grid-cols-2">
                   <!-- Case basics -->
-                  <div class="space-y-3">
+                  <div class="space-y-3 min-w-0">
                     <p class="text-xs font-medium uppercase tracking-wide text-muted">
                       Case basics
                     </p>
@@ -570,7 +588,7 @@ watch(session, (newSession) => {
                   </div>
 
                   <!-- Jurisdiction & court -->
-                  <div class="space-y-3">
+                  <div class="space-y-3 min-w-0">
                     <p class="text-xs font-medium uppercase tracking-wide text-muted">
                       Jurisdiction & court
                     </p>
@@ -631,7 +649,7 @@ watch(session, (newSession) => {
               >
                 <div class="grid gap-6 md:grid-cols-2">
                   <!-- People involved -->
-                  <div class="space-y-3">
+                  <div class="space-y-3 min-w-0">
                     <p class="text-xs font-medium uppercase tracking-wide text-muted">
                       People involved
                     </p>
@@ -700,7 +718,7 @@ watch(session, (newSession) => {
                   </div>
 
                   <!-- Children -->
-                  <div class="space-y-3">
+                  <div class="space-y-3 min-w-0">
                     <p class="text-xs font-medium uppercase tracking-wide text-muted">
                       Children
                     </p>
@@ -752,7 +770,7 @@ watch(session, (newSession) => {
               >
                 <div class="grid gap-6 md:grid-cols-[minmax(0,1.2fr)_minmax(0,0.8fr)]">
                   <!-- Goals & story -->
-                  <div class="space-y-3">
+                  <div class="space-y-3 min-w-0">
                     <p class="text-xs font-medium uppercase tracking-wide text-muted">
                       Goals & what you want understood
                     </p>
@@ -784,7 +802,7 @@ watch(session, (newSession) => {
                   </div>
 
                   <!-- Risk flags -->
-                  <div class="space-y-3">
+                  <div class="space-y-3 min-w-0">
                     <p class="text-xs font-medium uppercase tracking-wide text-muted">
                       Risk flags
                     </p>
