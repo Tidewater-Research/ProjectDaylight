@@ -1,14 +1,15 @@
 import { Inngest } from 'inngest'
 import { serve } from 'inngest/h3'
-import { eventHandler, toWebHandler, fromWebHandler } from 'h3'
+import { eventHandler } from 'h3'
 import { inngest } from '../inngest/client'
-import { testJob } from '../inngest/functions'
+import { testJob, journalExtractionFunction } from '../inngest/functions'
 
 // Create the Inngest serve handler
 const handler = serve({
   client: inngest,
   functions: [
-    testJob
+    testJob,
+    journalExtractionFunction
   ]
 })
 
