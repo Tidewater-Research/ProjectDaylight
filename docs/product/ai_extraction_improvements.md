@@ -514,6 +514,232 @@ Each state addition requires:
 
 ---
 
+## Testing Strategy: Model Capacity & Complex Extractions
+
+### Concern
+
+Adding multiple new schema fields (child_statements, coparent_interaction, structured patterns, welfare_impact object) plus state-specific guidance significantly increases the prompt size and expected output complexity. We need to ensure the model doesn't:
+
+1. **Truncate or omit fields** when overwhelmed
+2. **Hallucinate** to fill required fields
+3. **Degrade quality** on core extraction when distracted by new fields
+4. **Hit token limits** on longer journal entries
+
+### Testing Protocol
+
+#### Test Case 1: Simple Entry (Baseline)
+> "Picked up Josie from school today. She was happy to see me."
+
+**Verify:** Model doesn't over-extract. Should produce minimal output with most new fields as `null` or empty arrays.
+
+#### Test Case 2: Complex Multi-Event Entry
+> "This weekend was rough. Friday night Mari was 45 minutes late for pickup again - third time this month. When I called to ask where she was, she didn't answer. Josie was upset and said 'mommy always forgets about me.' Saturday we did homework together for 2 hours, then went to her soccer game. She scored a goal! Sunday morning Mari called demanding I bring Josie back early because 'something came up' - turned out she wanted to take her to her boyfriend's family BBQ without telling me. When I said no per the custody agreement, she said 'you're always trying to control everything' and hung up. Josie overheard and asked 'why does mommy get so mad at you?'"
+
+**Verify:**
+- [ ] Multiple events extracted (gatekeeping, parenting_time, school, coparent_conflict)
+- [ ] Child statements captured with correct context
+- [ ] Coparent interaction tone analysis present for relevant events
+- [ ] Pattern detection identifies recurring schedule violations
+- [ ] No fields truncated or missing
+- [ ] Response time acceptable (< 30s)
+
+#### Test Case 3: Long Narrative (Token Stress Test)
+Create a 2000+ word journal entry covering a full week of events.
+
+**Verify:**
+- [ ] Model completes without timeout
+- [ ] Quality remains consistent throughout
+- [ ] All mentioned events captured
+- [ ] No obvious hallucinations
+
+#### Test Case 4: Edge Cases
+- Entry with NO custody-relevant content (just "went to grocery store")
+- Entry that's entirely about positive parenting (no conflict)
+- Entry with multiple child statements
+- Entry with extensive co-parent communication back-and-forth
+
+### Mitigation Strategies
+
+If testing reveals model overload:
+
+1. **Make new fields optional** - Use `.optional()` or `.nullable()` liberally so model can skip when not relevant
+2. **Split extraction into passes** - First pass: core events. Second pass: enrich with tone/patterns/statements
+3. **Increase model tier** - Move from gpt-4o-mini to gpt-4o for complex entries
+4. **Adaptive prompting** - Shorter system prompt for simple entries, full prompt for complex
+5. **Field prioritization** - Instruct model which fields are "nice to have" vs "critical"
+
+### Acceptance Criteria
+
+- [ ] All test cases pass without truncation
+- [ ] Average extraction time < 15s for typical entries
+- [ ] Complex entries complete in < 45s
+- [ ] No regression in core extraction quality (type, title, description, timestamp)
+- [ ] New fields populated accurately when relevant, empty/null when not
+
+---
+
+## Backward Compatibility & Data Migration
+
+### Principle
+
+**No existing user data should be corrupted or invalidated.** Old events must remain queryable and displayable even if they use legacy schema values.
+
+### Strategy: Additive Schema Changes
+
+Instead of replacing columns, **add new columns alongside old ones** and deprecate gradually.
+
+#### Event Types Migration
+
+```sql
+-- Phase 1: Add new type column, keep old
+ALTER TABLE events ADD COLUMN type_v2 text;
+
+-- Phase 2: Backfill with mapping
+UPDATE events SET type_v2 = CASE type
+  WHEN 'incident' THEN 'coparent_conflict'  -- Best guess mapping
+  WHEN 'positive' THEN 'parenting_time'     -- May need manual review
+  WHEN 'medical' THEN 'medical'
+  WHEN 'school' THEN 'school'
+  WHEN 'communication' THEN 'communication'
+  WHEN 'legal' THEN 'legal'
+  ELSE type
+END
+WHERE type_v2 IS NULL;
+
+-- Phase 3: Application reads type_v2 with fallback to type
+-- Phase 4: After verification period, drop old column (optional)
+```
+
+#### Welfare Impact Migration
+
+```sql
+-- Add new columns
+ALTER TABLE events 
+  ADD COLUMN welfare_category text,
+  ADD COLUMN welfare_direction text,
+  ADD COLUMN welfare_severity text;
+
+-- Backfill from legacy enum
+UPDATE events SET 
+  welfare_category = 'routine',  -- Safe default
+  welfare_direction = CASE welfare_impact
+    WHEN 'positive' THEN 'positive'
+    WHEN 'none' THEN 'neutral'
+    WHEN 'unknown' THEN 'neutral'
+    ELSE 'negative'
+  END,
+  welfare_severity = CASE welfare_impact
+    WHEN 'minor' THEN 'minimal'
+    WHEN 'moderate' THEN 'moderate'  
+    WHEN 'significant' THEN 'significant'
+    ELSE NULL
+  END
+WHERE welfare_category IS NULL;
+
+-- Keep welfare_impact column for reads, stop writing to it
+```
+
+### Application-Level Compatibility
+
+#### Reading Events (Backward Compatible)
+
+```typescript
+function normalizeEvent(dbEvent: DatabaseEvent): NormalizedEvent {
+  return {
+    // Use new field if present, fall back to old
+    type: dbEvent.type_v2 || mapLegacyType(dbEvent.type),
+    
+    // Welfare impact: prefer new structured format
+    welfare: dbEvent.welfare_category ? {
+      category: dbEvent.welfare_category,
+      direction: dbEvent.welfare_direction,
+      severity: dbEvent.welfare_severity
+    } : mapLegacyWelfare(dbEvent.welfare_impact),
+    
+    // New fields: default to null/empty for old events
+    child_statements: dbEvent.child_statements || [],
+    coparent_interaction: dbEvent.coparent_interaction || null,
+    
+    // ... rest of fields
+  }
+}
+
+function mapLegacyType(oldType: string): string {
+  const mapping: Record<string, string> = {
+    'incident': 'coparent_conflict',
+    'positive': 'parenting_time',
+    // Keep medical, school, communication, legal as-is
+  }
+  return mapping[oldType] || oldType
+}
+
+function mapLegacyWelfare(oldValue: string | null) {
+  if (!oldValue || oldValue === 'unknown') {
+    return { category: 'none', direction: 'neutral', severity: null }
+  }
+  if (oldValue === 'positive') {
+    return { category: 'routine', direction: 'positive', severity: 'moderate' }
+  }
+  // minor/moderate/significant were all negative
+  return {
+    category: 'routine',
+    direction: 'negative', 
+    severity: oldValue === 'minor' ? 'minimal' : oldValue
+  }
+}
+```
+
+#### Writing Events (New Schema Only)
+
+New extractions always write to new columns. Old columns can be populated for compatibility during transition:
+
+```typescript
+async function saveEvent(event: ExtractedEvent) {
+  await supabase.from('events').insert({
+    // New fields
+    type_v2: event.type,
+    welfare_category: event.welfare_impact.category,
+    welfare_direction: event.welfare_impact.direction,
+    welfare_severity: event.welfare_impact.severity,
+    child_statements: event.child_statements,
+    coparent_interaction: event.coparent_interaction,
+    
+    // Legacy fields (for backward compat during transition)
+    type: mapNewToLegacyType(event.type),
+    welfare_impact: mapNewToLegacyWelfare(event.welfare_impact),
+    
+    // ... other fields
+  })
+}
+```
+
+### UI Compatibility
+
+1. **Event type filters** - Support both old and new types during transition
+2. **Event display** - Render based on normalized data, not raw DB values
+3. **Timeline view** - Group by normalized types
+4. **Exports** - Include both legacy and new fields for completeness
+
+### Migration Timeline
+
+| Phase | Duration | Actions |
+|-------|----------|---------|
+| 1. Schema Addition | Day 1 | Add new columns, no data changes |
+| 2. Dual Write | Week 1-2 | New extractions populate both old and new columns |
+| 3. Backfill | Week 2 | Run migration to populate new columns for existing events |
+| 4. Read Migration | Week 3-4 | Application reads from new columns with fallback |
+| 5. Deprecation | Month 2+ | Remove writes to old columns, keep for reads |
+| 6. Cleanup | Month 3+ | Optional: drop old columns after verification |
+
+### Rollback Plan
+
+If issues arise:
+1. New columns can be ignored (application falls back to old)
+2. No destructive changes until Phase 6
+3. Backfill can be re-run with corrected mappings
+
+---
+
 ## Notes
 
 - These changes improve extraction quality but don't change the fundamental architecture
