@@ -40,7 +40,6 @@ interface CaptureState {
   isRecording: boolean
   hasRecording: boolean
   recordingBlob: Blob | null
-  transcript: string
   error: string | null
 }
 
@@ -62,7 +61,6 @@ const state = ref<CaptureState>({
   isRecording: false,
   hasRecording: false,
   recordingBlob: null,
-  transcript: '',
   error: null
 })
 
@@ -81,11 +79,11 @@ const recordingUrl = useObjectUrl(() => state.value.recordingBlob)
 // =============================================================================
 
 const hasEventContent = computed(() => {
-  return state.value.eventText.trim().length > 0 || state.value.transcript.trim().length > 0
+  return state.value.eventText.trim().length > 0
 })
 
 const effectiveEventText = computed(() => {
-  return state.value.transcript.trim() || state.value.eventText.trim()
+  return state.value.eventText.trim()
 })
 
 const canProceedToEvidence = computed(() => {
@@ -230,7 +228,14 @@ async function transcribeRecording() {
       body: formData as any
     })
 
-    state.value.transcript = response.transcript
+    const newTranscript = response.transcript?.trim()
+
+    if (newTranscript) {
+      const existing = state.value.eventText.trim()
+      state.value.eventText = existing
+        ? `${existing}\n\n${newTranscript}`
+        : newTranscript
+    }
   } catch (e: any) {
     console.error(e)
     state.value.error = e?.data?.statusMessage || 'Failed to transcribe recording.'
@@ -494,75 +499,13 @@ function loadTestText(sample: string) {
             <div>
               <p class="font-semibold text-lg text-highlighted">What happened?</p>
               <p class="text-sm text-muted mt-1">
-                This becomes a journal entry and timeline events. Use your voice or text—whatever is easiest right now.
+                This becomes a journal entry and timeline events. Start by writing what happened, then optionally add to it with your voice.
               </p>
             </div>
           </template>
 
           <div class="space-y-6" :class="{ 'opacity-50 pointer-events-none': isFree && !canCreateJournalEntry }">
-            <!-- Voice Recording -->
-            <div class="space-y-3">
-              <div class="flex items-center justify-between">
-                <p class="text-sm font-medium text-highlighted">Voice Recording</p>
-                <UBadge v-if="state.isRecording" color="error" variant="subtle" class="animate-pulse">
-                  Recording...
-                </UBadge>
-              </div>
-
-              <ClientOnly>
-                <div class="flex flex-wrap items-center gap-3">
-                  <UButton
-                    :color="state.isRecording ? 'error' : 'primary'"
-                    :icon="state.isRecording ? 'i-lucide-square' : 'i-lucide-mic'"
-                    size="lg"
-                    :disabled="!canRecord"
-                    @click="toggleRecording"
-                  >
-                    {{ state.isRecording ? 'Stop Recording' : 'Start Recording' }}
-                  </UButton>
-
-                  <UButton
-                    v-if="state.hasRecording"
-                    color="neutral"
-                    variant="outline"
-                    icon="i-lucide-sparkles"
-                    :loading="isTranscribing"
-                    :disabled="state.isRecording || isTranscribing || !canRecord"
-                    @click="transcribeRecording"
-                  >
-                    Transcribe
-                  </UButton>
-                </div>
-
-                <div v-if="state.hasRecording && recordingUrl" class="mt-3">
-                  <audio :src="recordingUrl" controls class="w-full" />
-                </div>
-
-                <template #fallback>
-                  <p class="text-sm text-muted">Audio recording requires browser support.</p>
-                </template>
-              </ClientOnly>
-            </div>
-
-            <!-- Transcript Display -->
-            <div v-if="state.transcript" class="space-y-2">
-              <p class="text-sm font-medium text-highlighted">Transcript</p>
-              <div class="p-3 rounded-lg bg-muted/50 border border-default">
-                <p class="text-sm text-highlighted whitespace-pre-wrap">{{ state.transcript }}</p>
-              </div>
-            </div>
-
-            <!-- Divider -->
-            <div class="relative">
-              <div class="absolute inset-0 flex items-center">
-                <div class="w-full border-t border-default" />
-              </div>
-              <div class="relative flex justify-center text-xs uppercase">
-                <span class="bg-default px-2 text-muted">or type your note</span>
-              </div>
-            </div>
-
-            <!-- Text Input -->
+            <!-- Text Input (Primary) -->
             <div class="space-y-2">
               <div class="flex items-center justify-between">
                 <p class="text-sm font-medium text-highlighted">Written Description</p>
@@ -588,6 +531,52 @@ function loadTestText(sample: string) {
                 variant="outline"
                 class="w-full"
               />
+            </div>
+
+            <!-- Voice Recording (Secondary, augments text input) -->
+            <div class="space-y-3">
+              <div class="flex items-center justify-between">
+                <p class="text-xs font-medium text-muted">
+                  Optional: Use your voice to add more detail to this note. The transcript will appear in the same box above.
+                </p>
+                <UBadge v-if="state.isRecording" color="error" variant="subtle" class="animate-pulse">
+                  Recording...
+                </UBadge>
+              </div>
+
+              <ClientOnly>
+                <div class="flex flex-wrap items-center gap-3">
+                  <UButton
+                    :color="state.isRecording ? 'error' : 'primary'"
+                    :icon="state.isRecording ? 'i-lucide-square' : 'i-lucide-mic'"
+                    size="md"
+                    :disabled="!canRecord"
+                    @click="toggleRecording"
+                  >
+                    {{ state.isRecording ? 'Stop Recording' : 'Record with voice' }}
+                  </UButton>
+
+                  <UButton
+                    v-if="state.hasRecording"
+                    color="neutral"
+                    variant="outline"
+                    icon="i-lucide-sparkles"
+                    :loading="isTranscribing"
+                    :disabled="state.isRecording || isTranscribing || !canRecord"
+                    @click="transcribeRecording"
+                  >
+                    Transcribe into note
+                  </UButton>
+                </div>
+
+                <div v-if="state.hasRecording && recordingUrl" class="mt-3">
+                  <audio :src="recordingUrl" controls class="w-full" />
+                </div>
+
+                <template #fallback>
+                  <p class="text-sm text-muted">Audio recording requires browser support.</p>
+                </template>
+              </ClientOnly>
             </div>
 
             <!-- Reference Date -->
