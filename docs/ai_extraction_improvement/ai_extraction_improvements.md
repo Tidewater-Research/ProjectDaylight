@@ -395,44 +395,313 @@ if (caseRow?.jurisdiction_state) {
 
 ---
 
-## Implementation Checklist
+## Schema Comparison: Current vs Proposed
 
-### Phase 1: Schema Updates (Database Migration)
+### Current Extraction Schema
 
-- [ ] Create migration for new event types enum
-- [ ] Add welfare_category, welfare_direction, welfare_severity columns
-- [ ] Consider child_statements storage approach
-- [ ] Plan data migration for existing events
+```
+extraction
+├── events[]
+│   ├── type: 'incident' | 'positive' | 'medical' | 'school' | 'communication' | 'legal'
+│   ├── title: string
+│   ├── description: string
+│   ├── primary_timestamp: string | null (ISO-8601)
+│   ├── timestamp_precision: 'exact' | 'day' | 'approximate' | 'unknown'
+│   ├── duration_minutes: number | null
+│   ├── location: string | null
+│   ├── participants
+│   │   ├── primary: ('co-parent' | 'child' | 'self' | 'other')[]
+│   │   ├── witnesses: string[]
+│   │   └── professionals: string[]
+│   ├── child_involved: boolean
+│   ├── evidence_mentioned[]
+│   │   ├── type: 'text' | 'email' | 'photo' | 'document' | 'recording' | 'other'
+│   │   ├── description: string
+│   │   └── status: 'have' | 'need_to_get' | 'need_to_create'
+│   ├── patterns_noted: string[]  ← unstructured strings
+│   └── custody_relevance
+│       ├── agreement_violation: boolean | null
+│       ├── safety_concern: boolean | null
+│       └── welfare_impact: 'none' | 'minor' | 'moderate' | 'significant' | 'positive' | 'unknown'
+│
+├── action_items[]
+│   ├── priority: 'urgent' | 'high' | 'normal' | 'low'
+│   ├── type: 'document' | 'contact' | 'file' | 'obtain' | 'other'
+│   ├── description: string
+│   └── deadline: string | null
+│
+└── metadata
+    ├── extraction_confidence: number | null
+    └── ambiguities: string[]
+```
 
-### Phase 2: Extraction Schema Updates
+### Proposed Extraction Schema
 
-- [ ] Update `EventSchema` with new event types
-- [ ] Add `child_statements` field
-- [ ] Add `coparent_interaction` field  
-- [ ] Restructure `welfare_impact` to new object format
-- [ ] Update `patterns_noted` to structured format (optional)
+```
+extraction
+├── events[]
+│   ├── type: 'parenting_time' | 'caregiving' | 'household' | 'coparent_conflict' | 
+│   │         'gatekeeping' | 'communication' | 'medical' | 'school' | 'legal'
+│   │         ↑ More granular types separating positive parenting from chores,
+│   │           and conflict from gatekeeping behaviors
+│   │
+│   ├── title: string
+│   ├── description: string
+│   ├── primary_timestamp: string | null
+│   ├── timestamp_precision: 'exact' | 'day' | 'approximate' | 'unknown'
+│   ├── duration_minutes: number | null
+│   ├── location: string | null
+│   ├── participants
+│   │   ├── primary: ('co-parent' | 'child' | 'self' | 'other')[]
+│   │   ├── witnesses: string[]
+│   │   └── professionals: string[]
+│   ├── child_involved: boolean
+│   ├── evidence_mentioned[]
+│   │   ├── type: 'text' | 'email' | 'photo' | 'document' | 'recording' | 'other'
+│   │   ├── description: string
+│   │   └── status: 'have' | 'need_to_get' | 'need_to_create'
+│   │
+│   ├── ✨ child_statements[] ← NEW
+│   │   ├── statement: string (direct quote or paraphrase)
+│   │   ├── context: string (when/where said)
+│   │   └── concerning: boolean (alienation/coaching/distress indicator)
+│   │
+│   ├── ✨ coparent_interaction ← NEW (nullable, only for co-parent events)
+│   │   ├── your_tone: 'neutral' | 'cooperative' | 'defensive' | 'hostile' | null
+│   │   ├── their_tone: 'neutral' | 'cooperative' | 'defensive' | 'hostile' | null
+│   │   └── your_response_appropriate: boolean | null
+│   │
+│   ├── ✨ patterns_noted[] ← RESTRUCTURED (was string[], now objects)
+│   │   ├── pattern_type: 'schedule_violation' | 'communication_failure' | 
+│   │   │                 'escalating_hostility' | 'delegation_of_parenting' |
+│   │   │                 'routine_disruption' | 'information_withholding' | 
+│   │   │                 'unilateral_decisions'
+│   │   ├── description: string
+│   │   └── frequency: 'first_time' | 'recurring' | 'chronic' | null
+│   │
+│   └── custody_relevance
+│       ├── agreement_violation: boolean | null
+│       ├── safety_concern: boolean | null
+│       └── ✨ welfare_impact ← RESTRUCTURED (was enum, now object)
+│           ├── category: 'routine' | 'emotional' | 'medical' | 'educational' | 
+│           │             'social' | 'safety' | 'none'
+│           ├── direction: 'positive' | 'negative' | 'neutral'
+│           └── severity: 'minimal' | 'moderate' | 'significant' | null
+│
+├── action_items[] (unchanged)
+│   ├── priority: 'urgent' | 'high' | 'normal' | 'low'
+│   ├── type: 'document' | 'contact' | 'file' | 'obtain' | 'other'
+│   ├── description: string
+│   └── deadline: string | null
+│
+└── metadata (unchanged)
+    ├── extraction_confidence: number | null
+    └── ambiguities: string[]
+```
 
-### Phase 3: System Prompt Improvements
+### Summary of Changes
 
-- [ ] Add gatekeeping detection rules
-- [ ] Add pattern detection guidance
-- [ ] Create `state-guidance.ts` utility
-- [ ] Integrate state-specific guidance into prompts
+| Field | Current | Proposed |
+|-------|---------|----------|
+| `type` | 6 generic types | 9 custody-specific types |
+| `child_statements` | ❌ Not captured | ✅ Array of quotes with context |
+| `coparent_interaction` | ❌ Not captured | ✅ Tone analysis for both parties |
+| `patterns_noted` | Simple string array | Structured with type + frequency |
+| `welfare_impact` | Single enum mixing direction/severity | Object with category, direction, severity |
 
-### Phase 4: Code Updates
+### Event Type Mapping (Old → New)
 
-- [ ] Update `extract-events.post.ts`
-- [ ] Update `journal-extraction.ts` (background job)
-- [ ] Update TypeScript types
-- [ ] Update any UI components that display event types
+| Old Type | Maps To | What Changed |
+|----------|---------|--------------|
+| `positive` | `parenting_time` | Quality engaged time (reading, playing) |
+| `positive` | `caregiving` | Daily care (meals, baths, bedtime) |
+| `positive` | `household` | Chores, logistics (less court-relevant) |
+| `incident` | `coparent_conflict` | Disputes, hostility |
+| *(new)* | `gatekeeping` | Interference, withholding, alienation |
+| `communication` | `communication` | Neutral coordination (unchanged) |
+| `medical` | `medical` | Unchanged |
+| `school` | `school` | Unchanged |
+| `legal` | `legal` | Unchanged |
 
-### Phase 5: Testing
+---
 
-- [ ] Test with Virginia jurisdiction case
-- [ ] Verify new event types are being detected
-- [ ] Verify gatekeeping behaviors are flagged
-- [ ] Verify child statements are captured
-- [ ] Test backward compatibility with existing data
+## Implementation Plan (4 Phases)
+
+### Phase 1: Database Schema Changes
+**Goal:** Prepare the database for new extraction features without breaking existing data.
+
+- [ ] **1.1** Create migration `0039_extraction_event_types_v2.sql`
+  - [ ] Add `type_v2` column to events table (text, nullable)
+  - [ ] Add CHECK constraint for valid new types
+  - [ ] Keep existing `type` column intact
+
+- [ ] **1.2** Create migration `0040_welfare_impact_restructure.sql`
+  - [ ] Add `welfare_category` column (text, nullable)
+  - [ ] Add `welfare_direction` column (text, nullable)
+  - [ ] Add `welfare_severity` column (text, nullable)
+  - [ ] Keep existing `welfare_impact` column intact
+
+- [ ] **1.3** Create migration `0041_child_statements_coparent.sql`
+  - [ ] Add `child_statements` column (jsonb, default '[]')
+  - [ ] Add `coparent_interaction` column (jsonb, nullable)
+  - [ ] Add `patterns_noted_v2` column (jsonb, default '[]')
+
+- [ ] **1.4** Run all migrations in dev environment
+- [ ] **1.5** Verify existing data is unaffected
+
+---
+
+### Phase 2: State Guidance Utility
+**Goal:** Create jurisdiction-specific legal guidance system.
+
+- [ ] **2.1** Create `src/server/utils/state-guidance.ts`
+  - [ ] Define `StateGuidance` interface
+  - [ ] Implement Virginia guidance (VA Code § 20-124.3)
+  - [ ] Implement California guidance (Family Code § 3011)
+  - [ ] Implement `_default` fallback guidance
+  - [ ] Create `getStateGuidance()` function
+  - [ ] Create `normalizeStateName()` helper (handle abbreviations)
+
+- [ ] **2.2** Add state abbreviation mappings
+  - [ ] VA, CA, TX, NY, FL, PA minimum
+  - [ ] Title case normalization for full names
+
+- [ ] **2.3** Write unit tests for state guidance
+  - [ ] Test abbreviation normalization
+  - [ ] Test fallback to default
+  - [ ] Test Virginia-specific guidance retrieval
+
+---
+
+### Phase 3: Extraction Code Updates
+**Goal:** Update extraction logic with new schemas and improved prompts.
+
+#### 3A: Schema Updates (TypeScript/Zod)
+
+- [ ] **3.1** Update `EventSchema` type enum in `extract-events.post.ts`
+  ```
+  Old: incident, positive, medical, school, communication, legal
+  New: parenting_time, caregiving, household, coparent_conflict, 
+       gatekeeping, communication, medical, school, legal
+  ```
+
+- [ ] **3.2** Add `child_statements` field to schema
+  - [ ] Array of objects with statement, context, concerning
+
+- [ ] **3.3** Add `coparent_interaction` field to schema
+  - [ ] your_tone, their_tone, your_response_appropriate
+
+- [ ] **3.4** Restructure `welfare_impact` to object format
+  - [ ] category, direction, severity
+
+- [ ] **3.5** Update `patterns_noted` to structured format (optional)
+  - [ ] pattern_type enum, description, frequency
+
+- [ ] **3.6** Mirror all schema changes in `journal-extraction.ts`
+
+#### 3B: System Prompt Improvements
+
+- [ ] **3.7** Add gatekeeping detection rules to system prompt
+  - [ ] Schedule interference examples
+  - [ ] Withholding information examples
+  - [ ] Alienating language examples
+  - [ ] Unilateral decision examples
+
+- [ ] **3.8** Add pattern detection guidance to system prompt
+  - [ ] Schedule violations
+  - [ ] Communication failures
+  - [ ] Escalating hostility
+  - [ ] Delegation of parenting
+  - [ ] Routine disruption
+
+- [ ] **3.9** Integrate state guidance into extraction
+  - [ ] Import `getStateGuidance` in both extraction files
+  - [ ] Inject jurisdiction-specific prompt when case has state
+  - [ ] Test with Virginia jurisdiction case
+
+#### 3C: Database Write Updates
+
+- [ ] **3.10** Update event insert/update logic
+  - [ ] Write to new columns (type_v2, welfare_category, etc.)
+  - [ ] Dual-write to legacy columns for backward compat
+  - [ ] Handle child_statements and coparent_interaction JSONB
+
+- [ ] **3.11** Update TypeScript types in `src/app/types/`
+  - [ ] Add new event type union
+  - [ ] Add WelfareImpact interface
+  - [ ] Add ChildStatement interface
+  - [ ] Add CoparentInteraction interface
+
+---
+
+### Phase 4: UI, Testing & Rollout
+**Goal:** Update UI components and verify everything works end-to-end.
+
+#### 4A: UI Updates
+
+- [ ] **4.1** Update event type display/filtering
+  - [ ] Map new types to display labels
+  - [ ] Update any type badges/icons
+  - [ ] Handle both old and new types during transition
+
+- [ ] **4.2** Update event detail view
+  - [ ] Display child statements when present
+  - [ ] Display coparent interaction analysis
+  - [ ] Display structured welfare impact
+
+- [ ] **4.3** Update timeline/list views
+  - [ ] Filter by new event types
+  - [ ] Group appropriately
+
+#### 4B: Testing Protocol
+
+- [ ] **4.4** Test Case 1: Simple entry (baseline)
+  - [ ] Verify minimal output, null/empty new fields
+  - [ ] No over-extraction
+
+- [ ] **4.5** Test Case 2: Complex multi-event entry
+  - [ ] Multiple event types extracted
+  - [ ] Child statements captured
+  - [ ] Coparent tone analysis present
+  - [ ] Pattern detection working
+  - [ ] Response time < 30s
+
+- [ ] **4.6** Test Case 3: Long narrative (2000+ words)
+  - [ ] Completes without timeout
+  - [ ] Quality consistent throughout
+  - [ ] No hallucinations
+
+- [ ] **4.7** Test Case 4: Edge cases
+  - [ ] Entry with no custody-relevant content
+  - [ ] Entry with only positive parenting
+  - [ ] Entry with multiple child statements
+  - [ ] Entry with extensive co-parent communication
+
+- [ ] **4.8** Backward compatibility verification
+  - [ ] Old events display correctly
+  - [ ] Old event types map to new system
+  - [ ] No data corruption
+
+#### 4C: Data Migration (Post-Verification)
+
+- [ ] **4.9** Create backfill migration for existing events
+  - [ ] Map old type → type_v2
+  - [ ] Map old welfare_impact → new columns
+  - [ ] Run in batches to avoid locks
+
+- [ ] **4.10** Verify backfill completed correctly
+- [ ] **4.11** Update application to read from new columns with fallback
+
+---
+
+## Progress Summary
+
+| Phase | Status | Notes |
+|-------|--------|-------|
+| 1. Database Schema | ⬜ Not Started | |
+| 2. State Guidance | ⬜ Not Started | |
+| 3. Extraction Code | ⬜ Not Started | |
+| 4. UI & Testing | ⬜ Not Started | |
 
 ---
 
