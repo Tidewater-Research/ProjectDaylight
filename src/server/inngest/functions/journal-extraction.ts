@@ -362,7 +362,7 @@ async function extractEventsFromText(
   })
 
   const response = await openai.responses.parse({
-    model: 'gpt-5-mini',
+    model: 'gpt-5',
     text: {
       format: zodTextFormat(ExtractionSchema, 'extraction')
     },

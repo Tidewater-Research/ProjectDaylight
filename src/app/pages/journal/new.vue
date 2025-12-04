@@ -387,7 +387,7 @@ async function submitCapture() {
     // Step 5: Show confirmation toast
     toast.add({
       title: 'Entry submitted!',
-      description: 'You\'ll be notified when processing completes.',
+      description: 'Processing should take about 30 seconds. You\'ll be notified when complete.',
       icon: 'i-lucide-clock',
       color: 'info'
     })
