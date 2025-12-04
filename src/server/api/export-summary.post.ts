@@ -226,7 +226,7 @@ ${contextParts.join('\n')}
 Generate a summary following the structure and requirements specified in your instructions.`
 
     const response = await openai.chat.completions.create({
-      model: 'gpt-4o-mini',
+      model: 'gpt-5',
       messages: [
         {
           role: 'system',
