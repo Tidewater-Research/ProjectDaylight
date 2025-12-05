@@ -6,10 +6,18 @@ export const testJob = inngest.createFunction(
   { id: 'test-job' },
   { event: 'test/job.requested' },
   async ({ event, step }) => {
-    const config = useRuntimeConfig()
+    // Use process.env directly instead of useRuntimeConfig() because Inngest functions
+    // run in a webhook callback context where Nuxt's runtime config may not be available
+    const supabaseUrl = process.env.SUPABASE_URL
+    const supabaseServiceKey = process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY
+
+    if (!supabaseUrl || !supabaseServiceKey) {
+      throw new Error('Missing SUPABASE_URL or SUPABASE_SECRET_KEY environment variables')
+    }
+
     const supabase = createClient(
-      process.env.SUPABASE_URL!,
-      config.supabaseServiceKey
+      supabaseUrl,
+      supabaseServiceKey
     )
 
     // Step 1: Write a test record to the database

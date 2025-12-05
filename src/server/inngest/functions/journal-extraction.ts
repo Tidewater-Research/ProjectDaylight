@@ -136,11 +136,18 @@ const ExtractionSchema = z.object({
 type ExtractionResult = z.infer<typeof ExtractionSchema>
 
 function createServiceClient(): PublicClient {
-  const config = useRuntimeConfig()
+  // Use process.env directly instead of useRuntimeConfig() because Inngest functions
+  // run in a webhook callback context where Nuxt's runtime config may not be available
+  const supabaseUrl = process.env.SUPABASE_URL
+  const supabaseServiceKey = process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY
+
+  if (!supabaseUrl || !supabaseServiceKey) {
+    throw new Error('Missing SUPABASE_URL or SUPABASE_SECRET_KEY environment variables')
+  }
 
   return createClient<Database>(
-    process.env.SUPABASE_URL!,
-    config.supabaseServiceKey,
+    supabaseUrl,
+    supabaseServiceKey,
     {
       auth: {
         persistSession: false
@@ -188,10 +195,12 @@ async function extractEventsFromText(
   referenceDate: string | null,
   evidenceSummaries: EvidenceSummary[]
 ): Promise<ExtractionPayload> {
-  const config = useRuntimeConfig()
+  // Use process.env directly instead of useRuntimeConfig() because Inngest functions
+  // run in a webhook callback context where Nuxt's runtime config may not be available
+  const openaiApiKey = process.env.OPENAI_API_KEY
 
-  if (!config.openai?.apiKey) {
-    throw new Error('OpenAI API key is not configured')
+  if (!openaiApiKey) {
+    throw new Error('OpenAI API key is not configured (OPENAI_API_KEY environment variable)')
   }
 
   const trimmedText = eventText.trim()
@@ -358,7 +367,7 @@ async function extractEventsFromText(
   ].join('\n')
 
   const openai = new OpenAI({
-    apiKey: config.openai.apiKey
+    apiKey: openaiApiKey
   })
 
   const response = await openai.responses.parse({
